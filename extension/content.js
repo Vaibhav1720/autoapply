@@ -4,7 +4,7 @@
   // Version guard: re-inject overrides older instances. Bump when shipping
   // breaking content-script changes so popup-driven re-injection picks up
   // the new code instead of being blocked by a stale __autoapplyInjected flag.
-  const CONTENT_SCRIPT_VERSION = "1.9.0";
+  const CONTENT_SCRIPT_VERSION = "1.10.0";
   if (window.__autoapplyVersion === CONTENT_SCRIPT_VERSION) return;
   // A stale older copy may have left a dead FAB attached to the page whose
   // chrome.runtime handle is invalid after extension reload. Remove it so we
@@ -769,7 +769,7 @@
   }
 
   // ── FAB injection (initial + SPA re-injection) ─────────────────────────
-  // Inject FAB once DOM is ready.
+
   function injectFABWhenReady() {
     if (document.body) {
       injectFAB();
@@ -783,50 +783,84 @@
 
   injectFABWhenReady();
 
-  // ── SPA navigation: re-inject FAB on pushState / popstate ──────────────
-  // Sites like Greenhouse, Lever, Workday navigate without a full page load.
-  // We intercept history.pushState and listen for popstate so the FAB
-  // survives every in-page route transition.
+  // ── Layer 1: pushState / replaceState / popstate intercept ─────────────
+  // Fires immediately when any in-page navigation happens (React Router, etc.)
 
   let _spaReinjectTimer = null;
-  function _scheduleReinject() {
+  function _scheduleReinject(delay) {
     clearTimeout(_spaReinjectTimer);
-    // Short delay so the new page's <body> has rendered before we inject.
-    _spaReinjectTimer = setTimeout(() => {
-      if (!isAppPage && isContextValid()) injectFAB();
-    }, 300);
+    // Try fast (immediate DOM check) + fallback at 600ms for slow-rendering SPAs
+    if (!isAppPage && isContextValid()) {
+      const tryInject = () => {
+        if (!document.getElementById("__autoapply_fab") && document.body) {
+          injectFAB();
+        }
+      };
+      tryInject();                                        // immediate attempt
+      _spaReinjectTimer = setTimeout(tryInject, delay || 600); // after SPA renders
+    }
   }
 
-  // Intercept history.pushState (SPA forward navigation)
   const _origPushState = history.pushState.bind(history);
   history.pushState = function (...args) {
     _origPushState(...args);
-    _scheduleReinject();
+    _scheduleReinject(600);
   };
 
-  // Intercept history.replaceState (some SPAs use this for initial routing)
   const _origReplaceState = history.replaceState.bind(history);
   history.replaceState = function (...args) {
     _origReplaceState(...args);
-    _scheduleReinject();
+    _scheduleReinject(600);
   };
 
-  // Back/forward browser buttons
-  window.addEventListener("popstate", _scheduleReinject);
+  window.addEventListener("popstate", () => _scheduleReinject(600));
 
-  // ── Visibility-based re-injection guard ────────────────────────────────
-  // Some sites (Workday iframe, etc.) may remove our FAB. Periodic check
-  // re-attaches it if missing without hammering the DOM.
+  // ── Layer 2: MutationObserver on <html> watching for body replacement ──
+  // React/Angular/Vue sometimes tear out the entire <body> and replace it.
+  // This fires as soon as the new body element appears — much faster than a
+  // polling timer.
+  const _bodyWatcher = new MutationObserver((mutations) => {
+    if (isAppPage || !isContextValid()) return;
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (node.nodeName === "BODY" || node === document.body) {
+          // New body arrived — re-inject immediately + after short settle
+          injectFABWhenReady();
+          setTimeout(() => {
+            if (!document.getElementById("__autoapply_fab") && document.body) injectFAB();
+          }, 400);
+          return;
+        }
+      }
+      // Also catch cases where FAB was removed as a direct child of body
+      for (const node of m.removedNodes) {
+        if (node.id === "__autoapply_fab") {
+          setTimeout(() => {
+            if (!document.getElementById("__autoapply_fab") && document.body) injectFAB();
+          }, 200);
+          return;
+        }
+      }
+    }
+  });
+  try {
+    _bodyWatcher.observe(document.documentElement, { childList: true });
+    if (document.body) _bodyWatcher.observe(document.body, { childList: true });
+  } catch { /* ignore */ }
+
+  // ── Layer 3: Tight polling fallback (800ms) ────────────────────────────
+  // Last resort: if both layers above miss (sandboxed frame, CSP, etc.),
+  // this catches FAB removal within 800ms instead of the old 3s.
   let _fabGuardTimer = null;
   function _startFABGuard() {
     clearInterval(_fabGuardTimer);
     if (isAppPage) return;
     _fabGuardTimer = setInterval(() => {
       if (!isContextValid()) { clearInterval(_fabGuardTimer); return; }
-      if (!document.getElementById("__autoapply_fab")) {
+      if (!document.getElementById("__autoapply_fab") && document.body) {
         injectFAB();
       }
-    }, 3000);
+    }, 800);
   }
   _startFABGuard();
 
@@ -877,5 +911,5 @@
     setTimeout(() => toast.remove(), 15000);
   }
 
-  console.log("[AutoApply] content script v1.9.0 loaded on", location.href, "top=", window.top===window.self);
+  console.log("[AutoApply] content script v1.10.0 loaded on", location.href, "top=", window.top===window.self);
 })();
