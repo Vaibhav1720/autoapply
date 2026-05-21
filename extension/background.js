@@ -21,7 +21,53 @@ async function getApiBase() {
   });
 }
 
+/** Request optional host access for one origin (user gesture required). */
+function ensureHostPermissionForUrl(url, sendResponse) {
+  try {
+    if (!url || !/^https?:\/\//i.test(url)) {
+      sendResponse({ ok: false, error: "Not a web page" });
+      return;
+    }
+    const origin = new URL(url).origin + "/*";
+    chrome.permissions.contains({ origins: [origin] }, (has) => {
+      if (chrome.runtime.lastError) {
+        sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+        return;
+      }
+      if (has) {
+        sendResponse({ ok: true });
+        return;
+      }
+      chrome.permissions.request({ origins: [origin] }, (granted) => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+          return;
+        }
+        sendResponse({
+          ok: !!granted,
+          error: granted ? null : "Permission denied — allow access to fill forms on this site.",
+        });
+      });
+    });
+  } catch (e) {
+    sendResponse({ ok: false, error: e.message });
+  }
+}
+
+function injectContentScript(tabId) {
+  try {
+    chrome.scripting.executeScript(
+      { target: { tabId }, files: ["content.js"] },
+      () => { void chrome.runtime.lastError; }
+    );
+  } catch { /* tab closed */ }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === "ENSURE_HOST_PERMISSION") {
+    ensureHostPermissionForUrl(msg.url, sendResponse);
+    return true;
+  }
   if (msg.type === "SUGGEST_ANSWERS") {
     // Fetch profile server-side (don't trust page), then suggest
     chrome.storage.local.get(["autoapply_token"], (r) => {
@@ -190,6 +236,13 @@ chrome.tabs?.onUpdated.addListener((tabId, info, tab) => {
       host === "mango-ocean-0f1de6810.2.azurestaticapps.net"
     ) {
       pullTokenFromAppTab(tabId);
+    }
+    // "Apply with Autofill" from the web app on a custom career domain:
+    // content_scripts may not match — request optional permission and inject.
+    if (/__autoapply/.test(tab.url)) {
+      ensureHostPermissionForUrl(tab.url, (resp) => {
+        if (resp?.ok) injectContentScript(tabId);
+      });
     }
   } catch { /* malformed URL */ }
 });

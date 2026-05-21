@@ -306,10 +306,28 @@ $("#btnResetSettings").addEventListener("click", () => {
 $("#btnCloseSettings").addEventListener("click", () => location.reload());
 
 // ---- Fill actions: send to active tab ----
+function ensureHostPermission(tabUrl) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: "ENSURE_HOST_PERMISSION", url: tabUrl }, (resp) => {
+      void chrome.runtime.lastError;
+      resolve(resp?.ok);
+    });
+  });
+}
+
 function sendToContent(type, callback) {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (!tabs[0]) { callback?.({ filled: 0, error: "No active tab" }); return; }
     const tabId = tabs[0].id;
+    const tabUrl = tabs[0].url || "";
+    ensureHostPermission(tabUrl).then((granted) => {
+      if (!granted) {
+        callback?.({
+          filled: 0,
+          error: "Allow AutoApply to access this site when Chrome prompts you, then try again.",
+        });
+        return;
+      }
     const inject = () => new Promise((resolve) => {
       let done = false;
       const finish = (frames) => { if (done) return; done = true; resolve(frames); };
@@ -371,6 +389,7 @@ function sendToContent(type, callback) {
           });
         }, 2500);
       });
+    });
     });
   });
 }

@@ -96,8 +96,9 @@ forms using the user's stored resume data.
 | `scripting` | Required to inject the autofill script into the active tab when the user clicks the toolbar icon. |
 | `storage` | Used to cache the user's sign-in token and autofill preferences locally on their device. |
 | `identity` | Used for Google sign-in so the user can securely log in to their AutoApply account. |
-| Host permissions for applicant tracking systems | Needed to detect and fill application forms on the small set of common ATS domains in `host_permissions`. The extension does not read or modify pages on any other site. |
-| `optional_host_permissions <all_urls>` | Requested only on demand when the user explicitly clicks the AutoApply icon on a custom career site not in the bundled host list. We never inject without that user gesture. |
+| Host permissions (ATS list) | AutoApply declares explicit host patterns for common applicant tracking systems (Greenhouse, Lever, Workday, Ashby, Workable, SmartRecruiters, iCIMS, Eightfold, etc.) plus autoapplynow.in and our API. Content scripts and the floating autofill button run only on those hosts. |
+| `optional_host_permissions`: `https://*/*` | Used only when the user opens AutoApply on a company career site that is not on the bundled ATS list. Chrome shows a one-time permission prompt; we inject the autofill script only after the user allows access (popup “Autofill with AI” click or Apply-with-Autofill flow). We never read unrelated sites in the background. |
+| `activeTab` | Grants temporary access to the current tab when the user clicks the extension icon, as a fallback alongside optional host permissions. |
 
 ### 9. Privacy policy
 A privacy policy URL is mandatory because the extension uses `identity`

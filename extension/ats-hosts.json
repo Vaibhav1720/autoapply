@@ -1,0 +1,56 @@
+{
+  "comment": "Source of truth for manifest host_permissions and content_scripts.matches. Regenerate manifest host blocks from this file when adding ATS platforms.",
+  "app": [
+    "https://autoapplynow.in/*",
+    "https://www.autoapplynow.in/*",
+    "https://mango-ocean-0f1de6810.2.azurestaticapps.net/*"
+  ],
+  "api": [
+    "https://autoapply-func-dev.azurewebsites.net/*"
+  ],
+  "ats": [
+    "https://*.greenhouse.io/*",
+    "https://job-boards.greenhouse.io/*",
+    "https://boards.greenhouse.io/*",
+    "https://*.lever.co/*",
+    "https://jobs.lever.co/*",
+    "https://*.myworkdayjobs.com/*",
+    "https://*.ashbyhq.com/*",
+    "https://jobs.ashbyhq.com/*",
+    "https://*.workable.com/*",
+    "https://apply.workable.com/*",
+    "https://*.smartrecruiters.com/*",
+    "https://*.icims.com/*",
+    "https://*.eightfold.ai/*",
+    "https://*.netflix.net/*",
+    "https://*.taleo.net/*",
+    "https://*.oraclecloud.com/*",
+    "https://*.successfactors.com/*",
+    "https://*.successfactors.eu/*",
+    "https://*.jobvite.com/*",
+    "https://*.avature.net/*",
+    "https://*.bamboohr.com/*",
+    "https://*.recruitee.com/*",
+    "https://*.teamtailor.com/*",
+    "https://*.comeet.com/*",
+    "https://*.comeet.co/*",
+    "https://*.phenom.com/*",
+    "https://*.pinpointhq.com/*",
+    "https://*.gem.com/*",
+    "https://*.ultipro.com/*",
+    "https://*.dayforcehcm.com/*",
+    "https://*.csod.com/*",
+    "https://*.applytojob.com/*",
+    "https://*.breezy.hr/*",
+    "https://*.rippling.com/*",
+    "https://*.paylocity.com/*"
+  ],
+  "exclude_matches": [
+    "*://*.linkedin.com/*",
+    "*://linkedin.com/*",
+    "*://lnkd.in/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
+  ]
+}

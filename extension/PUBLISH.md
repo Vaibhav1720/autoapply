@@ -28,9 +28,10 @@ https://anjgpjhdecnibcbogkclafanemofndea.chromiumapp.org/
 
 ```bash
 cd extension
-zip -r ../autoapply-extension-v1.14.0.zip . \
-  -x "*.DS_Store" -x "__MACOSX/*" -x "STORE_LISTING.md" -x "PUBLISH.md"
-unzip -l ../autoapply-extension-v1.14.0.zip | head -20
+zip -r ../autoapply-extension-v1.15.0.zip manifest.json content.js background.js popup.js popup.html options.js options.html icons _locales
+unzip -l ../autoapply-extension-v1.15.0.zip | head -20
 ```
+
+**v1.15.0:** Narrow `host_permissions` to ATS domains + `optional_host_permissions` for custom career sites (Chrome Web Store “broad host permissions” policy). Do **not** include `key` in manifest.
 
 Upload: https://chrome.google.com/webstore/devconsole/387a263d-7b49-4653-a127-ca79a97c74e0/anjgpjhdecnibcbogkclafanemofndea/edit
