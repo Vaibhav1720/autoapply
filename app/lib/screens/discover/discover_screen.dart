@@ -4068,6 +4068,15 @@ bool _isExtInstalled() {
 }
 
 void _showJobApplySheet(BuildContext context, String title, String company, String url) {
+  // Make sure the extension can sync the JWT before the new tab opens
+  // (the new tab will ask for it via PULL_TOKEN_FROM_APP_TAB, but pushing it
+  // proactively avoids any race on the very first apply of a session).
+  final token = html.window.localStorage['auth_token'];
+  if (token != null && token.isNotEmpty) {
+    html.window.postMessage({'type': 'AUTOAPPLY_SYNC_TOKEN', 'token': token}, '*');
+  }
+  final extInstalled = _isExtInstalled();
+
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
@@ -4087,20 +4096,60 @@ void _showJobApplySheet(BuildContext context, String title, String company, Stri
           if (company.isNotEmpty) Text(company, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
           const SizedBox(height: 20),
 
-          // Primary: Apply with Autofill (always shown)
-          SizedBox(width: double.infinity, child: FilledButton.icon(
-            onPressed: () {
-              Navigator.pop(ctx);
-              final autofillUrl = url.contains('#') ? '$url&__autoapply=1' : '$url#__autoapply';
-              html.window.open(autofillUrl, '_blank');
-            },
-            icon: const Icon(Icons.flash_on, size: 18),
-            label: const Text('Apply with Autofill'),
-            style: FilledButton.styleFrom(
-              backgroundColor: AppTheme.primary,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-          )),
+          // Primary: Apply with Autofill
+          // When the extension is detected we open the job URL with the
+          // #__autoapply marker so content.js auto-pulls the JWT, pops up
+          // the FAB expanded with a pulse, waits for the form, and fills it.
+          // Without the extension we route through an install CTA first.
+          if (extInstalled)
+            SizedBox(width: double.infinity, child: FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                final autofillUrl = url.contains('#')
+                    ? (url.contains('?') ? '$url&__autoapply=1' : '$url?__autoapply=1')
+                    : '$url#__autoapply';
+                html.window.open(autofillUrl, '_blank');
+              },
+              icon: const Icon(Icons.flash_on, size: 18),
+              label: const Text('Apply with Autofill'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ))
+          else
+            // Extension not detected: install first so Autofill actually works.
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFFCD34D)),
+                ),
+                child: const Row(children: [
+                  Icon(Icons.extension_outlined, size: 16, color: Color(0xFF92400E)),
+                  SizedBox(width: 6),
+                  Expanded(child: Text(
+                    'Install the AutoApply Chrome extension to autofill this form.',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF92400E)),
+                  )),
+                ]),
+              ),
+              const SizedBox(height: 10),
+              FilledButton.icon(
+                onPressed: () => html.window.open(
+                  'https://chromewebstore.google.com/detail/autoapply-%E2%80%93-job-form-auto/anjgpjhdecnibcbogkclafanemofndea',
+                  '_blank',
+                ),
+                icon: const Icon(Icons.extension, size: 18),
+                label: const Text('Install Extension'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ]),
           const SizedBox(height: 10),
 
           // Visit job page (fallback)

@@ -4,7 +4,7 @@
   // Version guard: re-inject overrides older instances. Bump when shipping
   // breaking content-script changes so popup-driven re-injection picks up
   // the new code instead of being blocked by a stale __autoapplyInjected flag.
-  const CONTENT_SCRIPT_VERSION = "1.12.0";
+  const CONTENT_SCRIPT_VERSION = "1.13.0";
   if (window.__autoapplyVersion === CONTENT_SCRIPT_VERSION) return;
   // A stale older copy may have left a dead FAB attached to the page whose
   // chrome.runtime handle is invalid after extension reload. Remove it so we
@@ -501,41 +501,75 @@
   }
 
   // ── Auto-fill on page open from app ────────────────────────────────────
-  // When the app opens a job URL with #__autoapply, trigger autofill automatically
-  if (location.hash.includes("__autoapply")) {
-    // Clean the hash so it doesn't look weird
-    const cleanUrl = location.href.replace(/#__autoapply.*$/, "").replace(/&__autoapply=1/, "");
-    history.replaceState(null, "", cleanUrl || location.pathname);
+  // When the user clicks "Apply with Autofill" on autoapplynow.in, we open the
+  // job URL in a new tab with a #__autoapply (or &__autoapply=1) marker.
+  // This block:
+  //   1. Pops up the FAB in expanded mode immediately so the user sees it.
+  //   2. Verifies the extension is signed in (pulls token from app tab if not).
+  //   3. Waits for the page's form to render, then runs Smart Fill.
+  //   4. Reports success / failure as a toast.
+  const _autoapplyTriggered =
+    location.hash.includes("__autoapply") ||
+    /[?&]__autoapply=1\b/.test(location.search);
 
-    // Wait for the page to load forms, then auto-fill
-    const autoFillDelay = () => {
-      const fields = getAllFields();
-      if (fields.length > 0) {
-        doSmartFill().then((result) => {
-          // Show a subtle notification
-          const banner = document.createElement("div");
-          banner.id = "__autoapply_banner";
-          banner.innerHTML = result.filled > 0
-            ? `✅ AutoApply filled <b>${result.filled}</b> fields${result.aiCount ? ` (${result.aiCount} via AI)` : ""}. Review and submit!`
-            : `⚠️ AutoApply found no fillable fields on this page. Try clicking "Apply" first.`;
-          Object.assign(banner.style, {
-            position: "fixed", top: "12px", right: "12px", zIndex: "999999",
-            background: result.filled > 0 ? "#059669" : "#D97706", color: "#fff",
-            padding: "12px 20px", borderRadius: "10px", fontSize: "14px",
-            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-            boxShadow: "0 4px 12px rgba(0,0,0,.2)", maxWidth: "400px",
-            animation: "fadeIn .3s ease",
-          });
-          document.body.appendChild(banner);
-          setTimeout(() => banner.remove(), 8000);
-        });
-      } else {
-        // No fields yet — might be a SPA, retry after DOM settles
-        setTimeout(autoFillDelay, 2000);
+  if (_autoapplyTriggered) {
+    // Strip the marker so it doesn't leak into ATS analytics or break their routing.
+    let cleanUrl = location.href
+      .replace(/#__autoapply[^#]*$/, "")
+      .replace(/([?&])__autoapply=1(&|$)/, (m, p1, p2) => (p2 === "&" ? p1 : ""))
+      .replace(/[?&]$/, "");
+    try { history.replaceState(null, "", cleanUrl || location.pathname); } catch { /* sandbox */ }
+
+    // Flag picked up by injectFAB(): start in expanded state with a pulse so
+    // the user can clearly see the action point even before the fill completes.
+    window.__autoapply_force_expanded = true;
+
+    const runAutoFlow = async () => {
+      // 1. Ensure we have a JWT. If not, ask background to pull from any open
+      // autoapplynow.in tab. Falls through if no app tab is open — the toast
+      // will then tell the user to sign in.
+      const haveToken = await new Promise((res) => {
+        try {
+          chrome.storage.local.get(["autoapply_token"], (r) => res(!!r.autoapply_token));
+        } catch { res(false); }
+      });
+      if (!haveToken) {
+        try { await safeSendMessage({ type: "PULL_TOKEN_FROM_APP_TAB" }, 4000); } catch { /* ignore */ }
       }
+      const finalToken = await new Promise((res) => {
+        try { chrome.storage.local.get(["autoapply_token"], (r) => res(r.autoapply_token || null)); }
+        catch { res(null); }
+      });
+      if (!finalToken) {
+        showToast("Sign in on autoapplynow.in first, then click Apply again.", false);
+        return;
+      }
+
+      // 2. Wait for the form to render, then fill.
+      const attempt = async (tries) => {
+        const fields = getAllFields();
+        if (fields.length === 0) {
+          if (tries > 0) return setTimeout(() => attempt(tries - 1), 1500);
+          showToast("No form detected — try clicking the company's Apply button, then we'll fill it.", false);
+          return;
+        }
+        const result = await doSmartFill();
+        if (result.filled > 0) {
+          showToast(
+            `Filled ${result.filled} fields${result.aiCount ? ` (${result.aiCount} via AI)` : ""}. Review and submit!`,
+            true,
+          );
+        } else if (result.error) {
+          showToast(result.error, false);
+        } else {
+          showToast("All form fields look already filled. Review and submit!", true);
+        }
+      };
+      attempt(4); // up to ~7.5s of waiting for SPAs
     };
-    // Give the page 1.5s to load its forms
-    setTimeout(autoFillDelay, 1500);
+
+    // Give the page a moment to render its initial layout before we attempt.
+    setTimeout(runAutoFlow, 1200);
   }
 
   // ── AutoApply App Integration ──────────────────────────────────────────
@@ -717,16 +751,39 @@
       }, 4000);
     }
 
-    // Restore saved state (default to collapsed)
+    // Restore saved state (default to collapsed).
+    // When the page was opened via "Apply with Autofill", force-expand and
+    // pulse to draw the user's attention to where the action point is.
     try {
-      chrome.storage.local.get("__autoapply_fab_collapsed", (res) => {
-        if (res.__autoapply_fab_collapsed === false) {
-          expand();
-          resetAutoCollapse();
-        } else {
-          collapse();
+      if (window.__autoapply_force_expanded) {
+        expand();
+        // Pulse animation for ~6s so the FAB is unmissable.
+        const pulseId = "__autoapply_fab_pulse_style";
+        if (!document.getElementById(pulseId)) {
+          const st = document.createElement("style");
+          st.id = pulseId;
+          st.textContent = `
+            @keyframes __autoapply_pulse {
+              0% { box-shadow: 0 4px 16px rgba(99,102,241,.35), 0 0 0 0 rgba(99,102,241,.55); }
+              70% { box-shadow: 0 4px 16px rgba(99,102,241,.35), 0 0 0 14px rgba(99,102,241,0); }
+              100% { box-shadow: 0 4px 16px rgba(99,102,241,.35), 0 0 0 0 rgba(99,102,241,0); }
+            }
+          `;
+          (document.head || document.documentElement).appendChild(st);
         }
-      });
+        btn.style.animation = "__autoapply_pulse 1.4s ease-out 4";
+        // Keep expanded ~8s before allowing auto-collapse.
+        setTimeout(() => { btn.style.animation = ""; resetAutoCollapse(); }, 8000);
+      } else {
+        chrome.storage.local.get("__autoapply_fab_collapsed", (res) => {
+          if (res.__autoapply_fab_collapsed === false) {
+            expand();
+            resetAutoCollapse();
+          } else {
+            collapse();
+          }
+        });
+      }
     } catch { collapse(); }
 
     // Hover: expand temporarily
@@ -943,5 +1000,5 @@
     setTimeout(() => toast.remove(), 15000);
   }
 
-  console.log("[AutoApply] content script v1.12.0 loaded on", location.href, "top=", window.top===window.self);
+  console.log("[AutoApply] content script v1.13.0 loaded on", location.href, "top=", window.top===window.self);
 })();

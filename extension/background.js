@@ -45,6 +45,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
     return true;
   }
+  if (msg.type === "PULL_TOKEN_FROM_APP_TAB") {
+    // Triggered by content.js when the user lands on a job page via
+    // "Apply with Autofill" but the extension has no JWT yet. Pulls the JWT
+    // from any open autoapplynow.in tab so the upcoming smart-fill works.
+    chrome.tabs.query(
+      { url: ["https://autoapplynow.in/*", "https://mango-ocean-0f1de6810.2.azurestaticapps.net/*"] },
+      (tabs) => {
+        if (!tabs || tabs.length === 0) { sendResponse({ ok: false, error: "no app tab" }); return; }
+        const tabId = tabs[0].id;
+        try {
+          chrome.scripting.executeScript(
+            {
+              target: { tabId },
+              func: () => {
+                try { return localStorage.getItem("auth_token"); } catch { return null; }
+              },
+            },
+            (results) => {
+              void chrome.runtime.lastError;
+              const tok = results?.[0]?.result;
+              if (tok) {
+                chrome.storage.local.set({ autoapply_token: tok }, () => sendResponse({ ok: true }));
+              } else {
+                sendResponse({ ok: false, error: "no token in app tab" });
+              }
+            }
+          );
+        } catch (e) {
+          sendResponse({ ok: false, error: e.message });
+        }
+      }
+    );
+    return true;
+  }
   if (msg.type === "SAVE_CUSTOM_ANSWERS") {
     chrome.storage.local.get(["autoapply_token"], (r) => {
       const token = r.autoapply_token;
