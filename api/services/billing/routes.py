@@ -181,18 +181,44 @@ def _normalise_country(country: str) -> str:
 
 
 def _resolve_country(req: func.HttpRequest) -> str:
-    """Authoritative country code for the request — IP geo first, param fallback.
+    """Authoritative country code for the request.
 
-    This is the single function all billing routes must use to determine
-    which payment gateway / pricing to apply. Profile settings are
-    intentionally excluded to prevent gateway-gaming.
+    Resolution order:
+      1. IP geo (cannot be spoofed via profile/params)         ← preferred
+      2. ?country=XX query param                                ← dev/test fallback
+      3. Authenticated user's profile.applicationDetails.country ← last resort
+         (only used when IP geo returns "" — typically when ipinfo.io is
+          unreachable or X-Forwarded-For is missing in front of the Function App)
+
+    Profile fallback is safe because:
+      * Razorpay only accepts INR cards, so a non-India user cannot complete
+        a fraudulent INR checkout even if they spoof profile.country = "India".
+      * The reverse (India user wanting USD/Lemon Squeezy at $9.99 ≈ ₹830)
+        is more expensive than ₹199 INR — no economic incentive to game.
     """
     from shared.geoip import country_for_request as _geo
     ip_country = _geo(req)
     if ip_country:
-        return ip_country
+        return _normalise_country(ip_country)
+
     # Dev / local traffic (private IP) — accept the query param as fallback.
-    return (req.params.get("country") or "").strip().upper()
+    param_country = (req.params.get("country") or "").strip().upper()
+    if param_country:
+        return _normalise_country(param_country)
+
+    # Last resort — read profile country only if the user is authenticated.
+    # We swallow auth errors here so unauthenticated /plans calls still work.
+    try:
+        user_id = get_user_id(req)
+        profile = read_item("profiles", user_id, user_id) or {}
+        profile_country = (
+            (profile.get("applicationDetails") or {}).get("country") or ""
+        ).strip().upper()
+        if profile_country:
+            return _normalise_country(profile_country)
+    except Exception:
+        pass
+    return ""
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -288,6 +314,37 @@ def _sub_doc_id(ls_subscription_id: str | int) -> str:
     return f"sub-ls-{ls_subscription_id}"
 
 
+def _find_real_ls_subscription(user_id: str) -> dict | None:
+    """Find the user's authoritative LS subscription doc (one with `customer_portal`).
+
+    Walks the `subscriptions` container for any doc owned by `user_id` and
+    returns the most recently-updated one whose `urls` contains a real
+    `customer_portal` link (i.e. NOT an invoice-only doc). Used to self-heal
+    profiles that have an invoice id stored as `lsSubscriptionId`.
+    """
+    try:
+        from shared.cosmos_client import get_cosmos_client
+        db = get_cosmos_client()
+        container = db.get_container_client("subscriptions")
+        items = list(container.query_items(
+            query="SELECT * FROM c WHERE c.userId = @uid",
+            parameters=[{"name": "@uid", "value": user_id}],
+            enable_cross_partition_query=True,
+        ))
+        # Prefer docs that have a customer_portal URL; sort by updatedAt desc
+        candidates = [
+            s for s in items
+            if isinstance(s.get("urls"), dict)
+            and (s["urls"].get("customer_portal") or s["urls"].get("update_payment_method"))
+        ]
+        candidates.sort(key=lambda s: str(s.get("updatedAt") or ""), reverse=True)
+        if candidates:
+            return candidates[0]
+    except Exception:
+        logger.exception("_find_real_ls_subscription failed")
+    return None
+
+
 def _ensure_subscriptions_container():
     """Lazy create the `subscriptions` container if missing.
 
@@ -314,44 +371,26 @@ def _ensure_subscriptions_container():
 
 @bp.route(route="api/v1/billing/plans", methods=["GET"])
 def list_plans(req: func.HttpRequest) -> func.HttpResponse:
-    """Country-aware plan catalogue. No auth required.
+    """Country-aware plan catalogue. No auth required (but uses profile if available).
 
-    Country resolution order (highest → lowest trust):
-      1. Client IP geo-lookup  — cannot be spoofed via profile/params
-      2. ?country=XX param     — dev/testing fallback when geo returns ""
-      3. Profile country       — display preference only, NOT used for gateway routing
+    Country resolution: IP geo → ?country param → profile.country (last resort).
+    See _resolve_country() for details.
 
-    India (IP geo → "IN") → INR / Razorpay
-    Everything else        → USD / Lemon Squeezy
+    India → INR / Razorpay   |   Everything else → USD / Lemon Squeezy
     """
     try:
-        # 1. IP-based geolocation — primary, authoritative source.
-        ip_country = country_for_request(req)
-
-        # 2. Query param — accepted only when geo lookup returns nothing
-        #    (e.g. private IP in local dev, or ipinfo.io timeout).
-        param_country = (req.params.get("country") or "").strip().upper()
-
-        # 3. Profile country — read for logging/display, never used for routing.
-        profile_country = ""
-        try:
-            user_id = get_user_id(req)
-            profile = read_item("profiles", user_id, user_id) or {}
-            profile_country = (
-                (profile.get("applicationDetails") or {}).get("country") or ""
-            ).strip().upper()
-        except Exception:
-            pass
-
-        # Authoritative country for routing: IP first, then param fallback.
-        country = ip_country or param_country
+        country = _resolve_country(req)
         is_india = _is_india_country(country)
 
-        if ip_country and profile_country and ip_country != _normalise_country(profile_country):
+        # Diagnostic logging: surface IP vs profile mismatch for debugging
+        ip_country = country_for_request(req)
+        if ip_country and country != _normalise_country(ip_country):
             logger.info(
-                "[BILLING] IP country=%s differs from profile country=%s — using IP",
-                ip_country, profile_country,
+                "[BILLING] Resolved country=%s differs from IP=%s (lookup OK)",
+                country, ip_country,
             )
+        elif not ip_country:
+            logger.info("[BILLING] IP geo returned empty — resolved via fallback to %s", country)
 
         plans = PLANS_INR if is_india else PLANS_USD
         return success_response({
@@ -632,6 +671,22 @@ def cancel_subscription(req: func.HttpRequest) -> func.HttpResponse:
 
         if provider == "lemonsqueezy":
             ls_sub_id = sub.get("lsSubscriptionId")
+
+            # Self-heal: profile may have invoice id instead of real sub id
+            # (legacy webhook bug). Look up real sub before calling LS.
+            real_sub = _find_real_ls_subscription(user_id)
+            if real_sub:
+                real_id = real_sub.get("lsSubscriptionId")
+                if real_id and real_id != ls_sub_id:
+                    logger.info(
+                        "[BILLING] Cancel: repairing profile %s lsSubscriptionId %s → %s",
+                        user_id, ls_sub_id, real_id,
+                    )
+                    ls_sub_id = real_id
+                    sub["lsSubscriptionId"] = real_id
+                    if isinstance(real_sub.get("urls"), dict):
+                        sub["urls"] = real_sub["urls"]
+
             if not ls_sub_id:
                 raise ValidationError("No Lemon Squeezy subscription ID found")
             try:
@@ -725,6 +780,33 @@ def get_portal(req: func.HttpRequest) -> func.HttpResponse:
         ).strip()
 
         ls_sub_id = sub.get("lsSubscriptionId")
+
+        # Self-heal: if the URL is missing OR only an invoice link, look up the
+        # real subscription doc from the `subscriptions` container by userId.
+        # This rescues profiles corrupted by the old payment_success webhook
+        # bug that stored the INVOICE id as `lsSubscriptionId`.
+        if not url:
+            real_sub = _find_real_ls_subscription(user_id)
+            if real_sub:
+                real_urls = real_sub.get("urls") or {}
+                url = (
+                    real_urls.get("customer_portal")
+                    or real_urls.get("update_payment_method")
+                    or ""
+                ).strip()
+                real_id = real_sub.get("lsSubscriptionId")
+                # Repair profile in-place so future calls hit the cached URL
+                if real_id and real_id != ls_sub_id:
+                    logger.info(
+                        "[BILLING] Repairing profile %s: lsSubscriptionId %s → %s",
+                        user_id, ls_sub_id, real_id,
+                    )
+                    sub["lsSubscriptionId"] = real_id
+                    sub["urls"] = real_urls
+                    profile["subscription"] = sub
+                    upsert_item("profiles", profile)
+                    ls_sub_id = real_id
+
         if not url and ls_sub_id:
             try:
                 url = ls.get_customer_portal_url(str(ls_sub_id))
@@ -823,45 +905,74 @@ def lemonsqueezy_webhook(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse("ok", status_code=200)
 
 
+def _real_subscription_id(event: str, attrs: dict, ls_obj_id: str) -> str:
+    """Return the actual LS subscription ID for any event type.
+
+    For `subscription_*` events the data.id IS the subscription ID.
+    For `subscription_payment_*` (invoice) events, data.id is the INVOICE id;
+    the real subscription id lives in attrs.subscription_id. Using data.id
+    here corrupts profile.subscription.lsSubscriptionId and breaks portal/cancel.
+    """
+    if event.startswith("subscription_payment"):
+        sub_id = attrs.get("subscription_id") or attrs.get("subscriptionId")
+        if sub_id:
+            return str(sub_id)
+    return str(ls_obj_id)
+
+
 def _handle_event(event: str, user_id: str, attrs: dict, ls_obj_id: str, raw_payload: dict) -> None:
+    sub_id = _real_subscription_id(event, attrs, ls_obj_id)
+
     # Subscription events
     if event in (
         "subscription_created",
         "subscription_updated",
         "subscription_resumed",
         "subscription_unpaused",
-        "subscription_payment_success",
     ):
-        _upsert_subscription(user_id, attrs, ls_obj_id, raw_payload, set_active=True)
-        if event == "subscription_payment_success":
-            variant = attrs.get("variant_name") or "Pro"
-            total = attrs.get("total_formatted") or attrs.get("subtotal_formatted") or ""
-            if not total and attrs.get("subtotal") is not None:
-                total = f"${round(int(attrs['subtotal']) / 100, 2)}"
-            interval = "year" if "year" in (variant or "").lower() else "month"
-            _notify_payment_receipt(
-                user_id,
-                plan_name=variant,
-                amount_display=total or "See Lemon Squeezy receipt",
-                payment_id=str(ls_obj_id),
-                provider="Lemon Squeezy",
-                interval=interval,
-            )
+        _upsert_subscription(user_id, attrs, sub_id, raw_payload, set_active=True)
         return
 
-    if event in (
-        "subscription_payment_failed",
-    ):
-        _upsert_subscription(user_id, attrs, ls_obj_id, raw_payload, set_active=True, force_status="past_due")
+    if event == "subscription_payment_success":
+        # For payment events, attrs is the INVOICE — it lacks `urls`,
+        # `renews_at`, etc. We must fetch the subscription separately
+        # so the profile retains the real subscription metadata.
+        sub_attrs = attrs
+        try:
+            sub_attrs = ls.get_subscription(sub_id) or attrs
+        except Exception as fetch_err:
+            logger.warning(
+                "LS get_subscription(%s) failed after payment_success: %s",
+                sub_id, fetch_err,
+            )
+        _upsert_subscription(user_id, sub_attrs, sub_id, raw_payload, set_active=True)
+
+        variant = sub_attrs.get("variant_name") or attrs.get("variant_name") or "Pro"
+        total = attrs.get("total_formatted") or attrs.get("subtotal_formatted") or ""
+        if not total and attrs.get("subtotal") is not None:
+            total = f"${round(int(attrs['subtotal']) / 100, 2)}"
+        interval = "year" if "year" in (variant or "").lower() else "month"
+        _notify_payment_receipt(
+            user_id,
+            plan_name=variant,
+            amount_display=total or "See Lemon Squeezy receipt",
+            payment_id=str(ls_obj_id),
+            provider="Lemon Squeezy",
+            interval=interval,
+        )
+        return
+
+    if event in ("subscription_payment_failed",):
+        _upsert_subscription(user_id, attrs, sub_id, raw_payload, set_active=True, force_status="past_due")
         return
 
     if event in ("subscription_cancelled",):
         # User keeps Pro until ends_at. Mirror status, don't downgrade yet.
-        _upsert_subscription(user_id, attrs, ls_obj_id, raw_payload, set_active=True, force_status="cancelled")
+        _upsert_subscription(user_id, attrs, sub_id, raw_payload, set_active=True, force_status="cancelled")
         return
 
     if event in ("subscription_expired", "subscription_paused"):
-        _upsert_subscription(user_id, attrs, ls_obj_id, raw_payload, set_active=False)
+        _upsert_subscription(user_id, attrs, sub_id, raw_payload, set_active=False)
         return
 
     # One-time purchases (e.g. resume review at $19) — log only for now.
