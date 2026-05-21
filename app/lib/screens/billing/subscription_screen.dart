@@ -37,7 +37,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     });
     try {
       final api = context.read<ApiService>();
-      final resp = await api.get('/api/v1/billing/subscription');
+      // Cache-bust so browser/CDN never serves a stale subscription snapshot
+      final resp = await api.get(
+        '/api/v1/billing/subscription',
+        queryParameters: {'_': DateTime.now().millisecondsSinceEpoch.toString()},
+      );
       if (!mounted) return;
       setState(() {
         _sub = resp.data is Map ? Map<String, dynamic>.from(resp.data) : const {};
@@ -59,34 +63,64 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   Future<void> _openPortal() async {
     if (_busy) return;
+
+    // One-time Razorpay — no portal needed
+    if (_isRazorpay && _isOneTime) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'One-time payment — no auto-renewal. No billing portal is needed.',
+          ),
+          duration: Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
     setState(() => _busy = true);
     try {
-      final api = context.read<ApiService>();
-      final resp = await api.get('/api/v1/billing/portal');
-      final notApplicable = resp.data?['notApplicable'] == true;
-      final message = (resp.data?['message'] ?? '').toString();
-      final url = (resp.data?['url'] ?? '').toString();
+      // Use portal URL already returned by GET /subscription (from webhook).
+      // Avoids an extra API round-trip and works when LS API is slow.
+      var url = (_sub['manageUrl'] ?? '').toString().trim();
 
-      if (notApplicable) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message.isNotEmpty
-                ? message
-                : 'No billing management needed for one-time payments.'),
-            duration: const Duration(seconds: 4),
-          ),
+      if (url.isEmpty) {
+        final api = context.read<ApiService>();
+        final resp = await api.get(
+          '/api/v1/billing/portal',
+          queryParameters: {'_': DateTime.now().millisecondsSinceEpoch.toString()},
         );
-        return;
+        final notApplicable = resp.data?['notApplicable'] == true;
+        final message = (resp.data?['message'] ?? '').toString();
+        url = (resp.data?['url'] ?? '').toString().trim();
+
+        if (notApplicable) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(message.isNotEmpty
+                  ? message
+                  : 'No billing management needed for one-time payments.'),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+          return;
+        }
       }
-      if (url.isEmpty) throw Exception('Portal URL unavailable');
+
+      if (url.isEmpty) {
+        throw Exception(
+          'Portal link not ready yet. Refresh this page in a minute and try again.',
+        );
+      }
       html.window.open(url, '_blank');
     } catch (e) {
       if (!mounted) return;
+      final msg = e.toString();
+      final friendly = msg.contains('502') || msg.contains('503')
+          ? 'Billing portal is temporarily unavailable. Please try again shortly.'
+          : 'Could not open portal: $e';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('Could not open portal: $e'),
-            backgroundColor: AppTheme.error),
+        SnackBar(content: Text(friendly), backgroundColor: AppTheme.error),
       );
     } finally {
       if (mounted) setState(() => _busy = false);

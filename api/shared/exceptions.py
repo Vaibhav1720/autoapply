@@ -4,12 +4,28 @@
 class AppException(Exception):
     """Base exception for all application errors."""
 
-    def __init__(self, message: str, code: str, status_code: int, details: list | None = None):
+    def __init__(
+        self,
+        message: str,
+        code: str = "APP_ERROR",
+        status_code: int = 500,
+        details: list | None = None,
+    ):
         super().__init__(message)
         self.message = message
         self.code = code
         self.status_code = status_code
         self.details = details or []
+
+
+class BadGatewayError(AppException):
+    def __init__(self, message: str = "Upstream service error"):
+        super().__init__(message, "BAD_GATEWAY", 502)
+
+
+class ServiceUnavailableError(AppException):
+    def __init__(self, message: str = "Service temporarily unavailable"):
+        super().__init__(message, "SERVICE_UNAVAILABLE", 503)
 
 
 class ValidationError(AppException):

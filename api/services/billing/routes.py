@@ -448,7 +448,11 @@ def create_checkout(req: func.HttpRequest) -> func.HttpResponse:
             success_redirect_url=success_redirect,
         )
         if not result.get("url"):
-            raise AppException("Failed to create checkout URL", status_code=502)
+            raise AppException(
+                "Failed to create checkout URL",
+                code="CHECKOUT_ERROR",
+                status_code=502,
+            )
 
         return success_response({
             "url": result["url"],
@@ -712,24 +716,31 @@ def get_portal(req: func.HttpRequest) -> func.HttpResponse:
                 url = "https://dashboard.razorpay.com/"
             return success_response({"url": url, "provider": "razorpay"})
 
-        # Lemon Squeezy path
+        # Lemon Squeezy path — prefer URL saved by webhook (no extra API call)
+        urls = sub.get("urls") if isinstance(sub.get("urls"), dict) else {}
+        url = (
+            urls.get("customer_portal")
+            or urls.get("update_payment_method")
+            or ""
+        ).strip()
+
         ls_sub_id = sub.get("lsSubscriptionId")
-        if not ls_sub_id:
-            raise NotFoundError("No subscription ID found. Contact support.")
-        try:
-            url = ls.get_customer_portal_url(str(ls_sub_id))
-        except Exception as ls_err:
-            logger.warning("LS portal URL failed: %s", ls_err)
-            raise AppException(
-                "Could not fetch the Lemon Squeezy portal. "
-                "Please try again in a moment or contact support.",
-                status_code=502,
-            )
+        if not url and ls_sub_id:
+            try:
+                url = ls.get_customer_portal_url(str(ls_sub_id))
+            except Exception as ls_err:
+                logger.warning("LS portal URL failed: %s", ls_err)
+                raise AppException(
+                    "Could not fetch the Lemon Squeezy portal. "
+                    "Please try again in a moment or contact support.",
+                    code="PORTAL_UNAVAILABLE",
+                    status_code=502,
+                )
+
         if not url:
-            raise AppException(
-                "Lemon Squeezy portal URL is not available yet. "
-                "Please wait a moment after your subscription activates.",
-                status_code=502,
+            raise NotFoundError(
+                "No billing portal link found. "
+                "If you just subscribed, wait a minute and refresh this page."
             )
         return success_response({"url": url, "provider": "lemonsqueezy"})
     except AppException as e:
@@ -926,6 +937,8 @@ def _upsert_subscription(
         "priceUsd": price_usd,
         "renewsAt": doc["renewsAt"],
         "endsAt": doc["endsAt"],
+        "provider": "lemonsqueezy",
+        "paymentType": "recurring",
         "lsSubscriptionId": doc["lsSubscriptionId"],
         "lsCustomerId": doc["lsCustomerId"],
         "urls": doc["urls"],
