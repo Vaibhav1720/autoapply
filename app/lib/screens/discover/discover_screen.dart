@@ -80,6 +80,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   // and is sent to the backend so prompts/scrapers adapt to non-tech users.
   String _industryId = 'tech';
 
+  // Career-pivot mode — when ON, the backend skips the "broaden with resume
+  // titles" step. Use this when you're searching for roles different from
+  // your past experience (e.g. SDE → PhD / Research). The server also
+  // auto-detects pivot when your typed query shares no token with your
+  // resume titles, but this lets the user force it explicitly.
+  bool _pivotMode = false;
+
   // ── LinkedIn search state ────────────────────────────────────────────
   Map<String, dynamic>? _linkedInGroup;
   List<Map<String, dynamic>> _linkedInGroups = [];
@@ -635,6 +642,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         'locations': _allLocations(),
         'searchId': searchId,
         'industry': _industryId,
+        'pivot': _pivotMode,
       }, cancelToken: cancelToken, options: Options(
         // Bulk discover scrapes all selected companies server-side with AI scoring.
         // Typical time: 120-200s. Give it 5 minutes before timing out.
@@ -709,6 +717,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         'locations': _allLocations(),
         'searchId': searchId,
         'industry': _industryId,
+        'pivot': _pivotMode,
       }, cancelToken: cancelToken);
       // Robust parse — Dio may give Map<String,dynamic>, Map<dynamic,dynamic>,
       // or even a JSON String depending on platform/config. Never cast directly.
@@ -940,6 +949,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         'locations': _allLocations(),
         'searchId': _newSearchId(),
         'industry': _industryId,
+        'pivot': _pivotMode,
       }, options: Options(
         // LinkedIn search fetches ~1000 cards + AI scoring. Takes 60-120s.
         receiveTimeout: const Duration(minutes: 5),

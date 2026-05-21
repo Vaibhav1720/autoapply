@@ -130,7 +130,8 @@ def _extract_resume_titles(profile: dict) -> list[str]:
     return titles
 
 
-def _level_qualify_queries(search_queries: list[str], profile: dict) -> None:
+def _level_qualify_queries(search_queries: list[str], profile: dict,
+                           pivot: bool = False) -> None:
     """Broaden search queries using the user's actual resume titles.
 
     Strategy:
@@ -141,16 +142,62 @@ def _level_qualify_queries(search_queries: list[str], profile: dict) -> None:
          held — no guessing.
       4. Cap total queries to avoid excessive fan-out.
 
-    Also adds the parsed resume's extracted title if available (the resume
-    parser often normalizes titles better than raw experience entries).
+    Career-pivot detection
+    ─────────────────────
+    When the user's typed query shares NO meaningful token with any resume
+    title, they're searching off-discipline (e.g. an SDE typing "phd" or
+    "Research Scientist"). Adding resume titles to such a search dilutes
+    the pool with irrelevant results that then get dropped by the rerank.
+    In that case we silently leave ``search_queries`` alone.
+
+    Set ``pivot=True`` to force-skip resume-title expansion (when the UI
+    sends an explicit pivot flag, e.g. industry differs from resume's
+    implied industry).
 
     Mutates ``search_queries`` in place.
     """
-    have_lower = {(q or "").lower() for q in search_queries}
-    added: list[str] = []
-
     # Source 1: actual job titles from work experience (most recent first)
     resume_titles = _extract_resume_titles(profile)
+
+    # Pivot auto-detection: any meaningful token overlap between
+    # user-typed queries and resume titles? If not, the user is searching
+    # off-discipline — don't pollute their intent.
+    if not pivot and resume_titles and search_queries:
+        # Min length 3 so short acronyms (PhD, MBA, CFA, CPA, RN) count.
+        _word_re = re.compile(r"[A-Za-z]{3,}")
+        # ONLY strip pure English connectives + seniority words on both
+        # sides. We deliberately KEEP discipline-defining nouns like
+        # "software", "research", "data", "engineer" so that overlapping
+        # disciplines (Software Engineer ↔ Senior Software Engineer) still
+        # match, but truly different disciplines (Software Engineer ↔ Phd /
+        # Research Scientist / Lecturer / Nurse) do not.
+        _stop = {
+            "the", "and", "for", "with", "from", "into",
+            "senior", "junior", "staff", "lead", "principal",
+            "intern", "internship", "associate",
+            "year", "years", "team",
+        }
+        q_tokens: set[str] = set()
+        for q in search_queries:
+            q_tokens.update(w.lower() for w in _word_re.findall(q or ""))
+        q_tokens -= _stop
+        t_tokens: set[str] = set()
+        for t in resume_titles:
+            t_tokens.update(w.lower() for w in _word_re.findall(t or ""))
+        t_tokens -= _stop
+        if q_tokens and t_tokens and not (q_tokens & t_tokens):
+            pivot = True
+            logger.info(
+                "[PIVOT_DETECT] queries=%s share no token with resume titles=%s "
+                "— skipping title expansion",
+                search_queries, resume_titles,
+            )
+
+    if pivot:
+        return
+
+    have_lower = {(q or "").lower() for q in search_queries}
+    added: list[str] = []
     for t in resume_titles:
         tl = t.lower()
         if tl not in have_lower:
@@ -474,6 +521,10 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
 
         body = req.get_json() if req.get_body() else {}
         query = body.get("query", "")
+        # Pivot mode: user is intentionally searching off-resume (career
+        # change). When set, we skip resume-title query expansion so the
+        # pool isn't polluted with the user's old discipline.
+        pivot_mode = bool(body.get("pivot"))
 
         # ── Bulk-level deadline (under Y1 230s response cap) ──
         # We stop dispatching new work and cancel pending futures once this
@@ -544,7 +595,7 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
                         search_queries.append("software engineer")
                 _maybe_add_eng_fallbacks(
                     search_queries, industry=(prefs.get("industry") or ""))
-                _level_qualify_queries(search_queries, profile)
+                _level_qualify_queries(search_queries, profile, pivot=pivot_mode)
 
                 raw_jobs = []
                 seen_ids = set()
@@ -946,6 +997,50 @@ _COUNTRY_MAP = {
 }
 
 
+# Regional aliases — map a regional name to the list of constituent
+# countries (each must be a key in `_COUNTRY_MAP` so the codes resolve).
+# Used by `_filter_jobs_by_location` (location keep/drop) and by
+# `_expand_country_to_cities` (fan-out search queries to the region's
+# metros). Without these, a user typing "Europe" gets 0 matches because
+# the filter treats it as an unknown city.
+_REGION_ALIASES: dict[str, list[str]] = {
+    "europe": [
+        "uk", "germany", "france", "netherlands", "ireland", "switzerland",
+        "spain", "italy", "poland", "portugal", "denmark", "finland",
+        "norway", "sweden", "austria", "belgium", "czech",
+    ],
+    "eu": [
+        "germany", "france", "netherlands", "ireland", "spain", "italy",
+        "poland", "portugal", "denmark", "finland", "sweden", "austria",
+        "belgium", "czech",
+    ],
+    "emea": [
+        "uk", "germany", "france", "netherlands", "ireland", "switzerland",
+        "spain", "italy", "poland", "portugal", "denmark", "finland",
+        "norway", "sweden", "austria", "belgium", "czech",
+        "uae", "saudi arabia", "qatar", "south africa", "israel",
+    ],
+    "apac": [
+        "singapore", "australia", "japan", "south korea", "hong kong",
+        "taiwan", "china", "india", "new zealand",
+    ],
+    "asia": [
+        "india", "singapore", "japan", "south korea", "china", "hong kong",
+        "taiwan",
+    ],
+    "americas": ["usa", "canada", "brazil", "mexico"],
+    "north america": ["usa", "canada", "mexico"],
+    "latam": ["brazil", "mexico"],
+    "middle east": ["uae", "saudi arabia", "qatar", "bahrain", "kuwait", "oman"],
+    "gulf": ["uae", "saudi arabia", "qatar", "bahrain", "kuwait", "oman"],
+    "anywhere in europe": [
+        "uk", "germany", "france", "netherlands", "ireland", "switzerland",
+        "spain", "italy", "poland", "portugal", "denmark", "finland",
+        "norway", "sweden", "austria", "belgium", "czech",
+    ],
+}
+
+
 # Country -> top metro cities to fan-scrape when the user only picks the
 # country. Many career boards (Workday, Greenhouse, Lever) bias their search
 # rankings toward exact-city matches and will return MORE relevant jobs when
@@ -983,15 +1078,32 @@ def _expand_country_to_cities(locations: list[str], cap: int | None = None) -> l
     """Expand pure-country picks (e.g. ["India"]) into the country plus its
     top metros (["India", "Bangalore", "Hyderabad", "Pune", ...]).
 
+    Regional aliases ("Europe", "APAC", "EMEA", "Asia", "Americas", "Middle
+    East", etc.) are expanded into their constituent countries first, each
+    of which then gets a (smaller, per-country) metro fan-out so we don't
+    blow up the scrape budget. A user typing "Europe" therefore ends up
+    with roughly 15 queries: 7-8 countries + 1-2 top metros each.
+
     Already-specific cities pass through untouched. Order is preserved so
     user-pinned cities take priority. Cap controls how many cities to add per
-    country; defaults to the SCRAPE_CITY_FANOUT env knob (8).
+    country; defaults to the SCRAPE_CITY_FANOUT env knob (6).
     """
     if cap is None:
         try:
             cap = int(os.environ.get("SCRAPE_CITY_FANOUT", "6"))
         except (TypeError, ValueError):
             cap = 6
+    # Regions fan-out to many countries; keep the per-country metro
+    # expansion small so the total stays within scrape budget.
+    region_metro_cap = max(1, min(cap, 1))
+    # Cap how many countries we expand a region into (otherwise "Europe"
+    # alone produces 16 countries × 1 metro = 32 entries, blowing the
+    # scrape-pair cap downstream and starving each pair of time).
+    try:
+        region_country_cap = int(os.environ.get("REGION_COUNTRY_CAP", "8"))
+    except (TypeError, ValueError):
+        region_country_cap = 8
+
     out: list[str] = []
     seen: set[str] = set()
     for raw in locations:
@@ -1002,8 +1114,26 @@ def _expand_country_to_cities(locations: list[str], cap: int | None = None) -> l
         if key in seen:
             continue
         seen.add(key)
+
+        # Region first — preserves the literal phrase (some boards understand
+        # "Europe"), then explodes into top countries + 1 metro each.
+        region_countries = _REGION_ALIASES.get(key)
+        if region_countries:
+            out.append(loc)
+            for country in region_countries[:region_country_cap]:
+                ck = country.lower()
+                if ck in seen:
+                    continue
+                seen.add(ck)
+                out.append(country.title() if country.isalpha() else country)
+                for c in (_COUNTRY_TO_CITIES.get(ck) or [])[:region_metro_cap]:
+                    cck = c.lower()
+                    if cck not in seen:
+                        seen.add(cck)
+                        out.append(c)
+            continue
+
         out.append(loc)
-        # Only expand when the entry IS a recognised country (not a city).
         cities = _COUNTRY_TO_CITIES.get(key)
         if cities:
             for c in cities[:cap]:
@@ -1055,6 +1185,16 @@ def _filter_jobs_by_location(jobs: list[dict], locations: list[str], log_tag: st
         if not loc.startswith("remote"):
             cities.add(loc)
         matched_country = False
+        # Regional aliases ("europe", "apac", "emea", "asia", "americas",
+        # "middle east", "latam", "gulf"…) expand to every constituent
+        # country's codes so a job in "London, UK" matches a "Europe" filter.
+        for region_key, region_countries in _REGION_ALIASES.items():
+            if region_key in loc:
+                for country_name in region_countries:
+                    country_codes = _COUNTRY_MAP.get(country_name)
+                    if country_codes:
+                        countries.update(country_codes)
+                matched_country = True
         for keyword, codes in _COUNTRY_MAP.items():
             if keyword in loc:
                 countries.update(codes)
@@ -1138,6 +1278,7 @@ def discover_company_jobs(req: func.HttpRequest) -> func.HttpResponse:
         body_locations = [str(l).strip() for l in (body.get("locations") or []) if str(l).strip()]
         search_id = (body.get("searchId") or "").strip() or None
         body_industry = (body.get("industry") or "").strip().lower() or None
+        pivot_mode = bool(body.get("pivot"))
 
         if not company_id:
             raise ValidationError("companyId is required")
@@ -1238,10 +1379,11 @@ def discover_company_jobs(req: func.HttpRequest) -> func.HttpResponse:
             elif len(profile.get("experience") or []) > 0:
                 exp_years = len(profile.get("experience") or []) * 2
 
-        _level_qualify_queries(search_queries, profile)
+        _level_qualify_queries(search_queries, profile, pivot=pivot_mode)
 
-        logger.info("%s SEARCH queries=%s locations=%s exp=%s",
-                    log_tag, search_queries, location_queries, exp_years)
+        logger.info("%s SEARCH queries=%s locations=%s exp=%s pivot=%s",
+                    log_tag, search_queries, location_queries, exp_years,
+                    pivot_mode)
         raw_jobs = []
         seen_ids = set()
 
@@ -1620,6 +1762,7 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
         req_locations = [str(l).strip() for l in (body.get("locations") or []) if str(l).strip()]
         search_id = (body.get("searchId") or "").strip() or None
         body_industry = (body.get("industry") or "").strip().lower() or None
+        pivot_mode = bool(body.get("pivot"))
 
         profile = read_item("profiles", user_id, user_id)
         if not profile:
@@ -1661,10 +1804,13 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
 
         # Level-qualify: a 15-YOE user searching "Product Manager" should
         # also search "VP of Product Manager", "Director of Product Manager" etc.
-        _level_qualify_queries(req_queries, profile)
+        # Skipped automatically (or via pivot=true) when the search is
+        # off-discipline from the user's resume — see _level_qualify_queries.
+        _level_qualify_queries(req_queries, profile, pivot=pivot_mode)
 
         log_tag = f"[LI-SEARCH][{profile.get('email', user_id)}]"
-        logger.info("%s queries=%s locations=%s", log_tag, req_queries, req_locations)
+        logger.info("%s queries=%s locations=%s pivot=%s",
+                    log_tag, req_queries, req_locations, pivot_mode)
 
         # ── 1-day Cosmos cache for LinkedIn pool ──────────────────────
         import hashlib
