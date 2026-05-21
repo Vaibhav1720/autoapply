@@ -4,7 +4,7 @@
   // Version guard: re-inject overrides older instances. Bump when shipping
   // breaking content-script changes so popup-driven re-injection picks up
   // the new code instead of being blocked by a stale __autoapplyInjected flag.
-  const CONTENT_SCRIPT_VERSION = "1.8.0";
+  const CONTENT_SCRIPT_VERSION = "1.9.0";
   if (window.__autoapplyVersion === CONTENT_SCRIPT_VERSION) return;
   // A stale older copy may have left a dead FAB attached to the page whose
   // chrome.runtime handle is invalid after extension reload. Remove it so we
@@ -768,16 +768,67 @@
     collapse();
   }
 
-  // Inject FAB once DOM is ready. Guard against edge cases where body is
-  // not yet available (very early injection).
-  if (document.body) {
-    injectFAB();
-  } else {
-    const bodyObs = new MutationObserver(() => {
-      if (document.body) { bodyObs.disconnect(); injectFAB(); }
-    });
-    bodyObs.observe(document.documentElement, { childList: true });
+  // ── FAB injection (initial + SPA re-injection) ─────────────────────────
+  // Inject FAB once DOM is ready.
+  function injectFABWhenReady() {
+    if (document.body) {
+      injectFAB();
+    } else {
+      const bodyObs = new MutationObserver(() => {
+        if (document.body) { bodyObs.disconnect(); injectFAB(); }
+      });
+      bodyObs.observe(document.documentElement, { childList: true });
+    }
   }
+
+  injectFABWhenReady();
+
+  // ── SPA navigation: re-inject FAB on pushState / popstate ──────────────
+  // Sites like Greenhouse, Lever, Workday navigate without a full page load.
+  // We intercept history.pushState and listen for popstate so the FAB
+  // survives every in-page route transition.
+
+  let _spaReinjectTimer = null;
+  function _scheduleReinject() {
+    clearTimeout(_spaReinjectTimer);
+    // Short delay so the new page's <body> has rendered before we inject.
+    _spaReinjectTimer = setTimeout(() => {
+      if (!isAppPage && isContextValid()) injectFAB();
+    }, 300);
+  }
+
+  // Intercept history.pushState (SPA forward navigation)
+  const _origPushState = history.pushState.bind(history);
+  history.pushState = function (...args) {
+    _origPushState(...args);
+    _scheduleReinject();
+  };
+
+  // Intercept history.replaceState (some SPAs use this for initial routing)
+  const _origReplaceState = history.replaceState.bind(history);
+  history.replaceState = function (...args) {
+    _origReplaceState(...args);
+    _scheduleReinject();
+  };
+
+  // Back/forward browser buttons
+  window.addEventListener("popstate", _scheduleReinject);
+
+  // ── Visibility-based re-injection guard ────────────────────────────────
+  // Some sites (Workday iframe, etc.) may remove our FAB. Periodic check
+  // re-attaches it if missing without hammering the DOM.
+  let _fabGuardTimer = null;
+  function _startFABGuard() {
+    clearInterval(_fabGuardTimer);
+    if (isAppPage) return;
+    _fabGuardTimer = setInterval(() => {
+      if (!isContextValid()) { clearInterval(_fabGuardTimer); return; }
+      if (!document.getElementById("__autoapply_fab")) {
+        injectFAB();
+      }
+    }, 3000);
+  }
+  _startFABGuard();
 
   function showToast(message, ok) {
     const existing = document.getElementById("__autoapply_toast");
@@ -826,5 +877,5 @@
     setTimeout(() => toast.remove(), 15000);
   }
 
-  console.log("[AutoApply] content script v1.8.0 loaded on", location.href, "top=", window.top===window.self);
+  console.log("[AutoApply] content script v1.9.0 loaded on", location.href, "top=", window.top===window.self);
 })();

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "default_locale": "en",
   "name": "__MSG_extName__",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "__MSG_extShortDescription__",
   "homepage_url": "https://autoapplynow.in",
   "permissions": ["activeTab", "storage", "scripting", "identity"],
@@ -30,10 +30,23 @@
     {
       "matches": [
         "https://autoapplynow.in/*",
-        "https://mango-ocean-0f1de6810.2.azurestaticapps.net/*"
+        "https://mango-ocean-0f1de6810.2.azurestaticapps.net/*",
+        "https://*.greenhouse.io/*",
+        "https://boards.greenhouse.io/*",
+        "https://*.lever.co/*",
+        "https://jobs.lever.co/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.ashbyhq.com/*",
+        "https://*.workable.com/*",
+        "https://apply.workable.com/*",
+        "https://*.smartrecruiters.com/*",
+        "https://*.icims.com/*",
+        "https://*.eightfold.ai/*",
+        "https://*.netflix.net/*"
       ],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ],
   "background": {
