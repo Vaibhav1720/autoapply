@@ -109,6 +109,67 @@ async function suggestAnswers(token, fields) {
   }
 }
 
+// ── Auto-login bridge ─────────────────────────────────────────────────────
+// When the user navigates to (or finishes loading) autoapplynow.in we pull
+// localStorage.auth_token directly from the page and stash it in
+// chrome.storage.local.autoapply_token. This is a defence-in-depth layer on
+// top of the content script bridge — it covers the cases where the content
+// script hasn't finished loading yet (popup opened too early) or where a
+// stale extension session is still showing the sign-in screen.
+const APP_URL_FILTERS = {
+  url: [
+    { hostEquals: "autoapplynow.in" },
+    { hostEquals: "www.autoapplynow.in" },
+    { hostEquals: "mango-ocean-0f1de6810.2.azurestaticapps.net" },
+  ],
+};
+
+function pullTokenFromAppTab(tabId) {
+  try {
+    chrome.scripting.executeScript(
+      {
+        target: { tabId },
+        func: () => {
+          try { return localStorage.getItem("auth_token"); } catch { return null; }
+        },
+      },
+      (results) => {
+        void chrome.runtime.lastError;
+        const tok = results?.[0]?.result;
+        if (tok) {
+          chrome.storage.local.set({ autoapply_token: tok });
+        }
+      }
+    );
+  } catch { /* tab gone / no permission — ignore */ }
+}
+
+chrome.tabs?.onUpdated.addListener((tabId, info, tab) => {
+  if (info.status !== "complete") return;
+  if (!tab?.url) return;
+  try {
+    const u = new URL(tab.url);
+    const host = u.hostname;
+    if (
+      host === "autoapplynow.in" ||
+      host === "www.autoapplynow.in" ||
+      host === "mango-ocean-0f1de6810.2.azurestaticapps.net"
+    ) {
+      pullTokenFromAppTab(tabId);
+    }
+  } catch { /* malformed URL */ }
+});
+
+// On install/update: scan any open autoapplynow.in tabs and pull the token.
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.tabs?.query(
+    { url: ["https://autoapplynow.in/*", "https://mango-ocean-0f1de6810.2.azurestaticapps.net/*"] },
+    (tabs) => {
+      (tabs || []).forEach((t) => t.id && pullTokenFromAppTab(t.id));
+    }
+  );
+});
+
 async function saveCustomAnswers(token, answers) {
   try {
     const API_BASE = await getApiBase();

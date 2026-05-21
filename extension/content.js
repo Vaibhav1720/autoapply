@@ -4,7 +4,7 @@
   // Version guard: re-inject overrides older instances. Bump when shipping
   // breaking content-script changes so popup-driven re-injection picks up
   // the new code instead of being blocked by a stale __autoapplyInjected flag.
-  const CONTENT_SCRIPT_VERSION = "1.10.0";
+  const CONTENT_SCRIPT_VERSION = "1.11.0";
   if (window.__autoapplyVersion === CONTENT_SCRIPT_VERSION) return;
   // A stale older copy may have left a dead FAB attached to the page whose
   // chrome.runtime handle is invalid after extension reload. Remove it so we
@@ -573,23 +573,32 @@
   // do NOT monkey-patch localStorage.setItem because that runs on every page
   // and can crash analytics-heavy sites or cause infinite loops.
   if (isAppPage) {
-    try {
-      const token = localStorage.getItem("auth_token");
-      if (token) {
-        chrome.storage.local.set({ autoapply_token: token }, () => {
-          document.documentElement.setAttribute("data-autoapply-ext", "connected");
-        });
-      }
-    } catch { /* localStorage access blocked */ }
-    // Re-check periodically while on the app page
-    setInterval(() => {
+    const _syncToken = () => {
       if (!isContextValid()) return;
       try {
         const token = localStorage.getItem("auth_token");
-        if (token) chrome.storage.local.set({ autoapply_token: token });
-        else chrome.storage.local.remove("autoapply_token");
-      } catch { /* ignore */ }
-    }, 5000);
+        if (token) {
+          chrome.storage.local.set({ autoapply_token: token }, () => {
+            document.documentElement.setAttribute("data-autoapply-ext", "connected");
+          });
+        } else {
+          chrome.storage.local.remove("autoapply_token");
+        }
+      } catch { /* localStorage access blocked */ }
+    };
+
+    _syncToken();                       // initial pull
+
+    // Cross-tab login: fires when another tab writes to localStorage.
+    // This is how a fresh sign-in in tab A propagates to tab B immediately.
+    window.addEventListener("storage", (e) => {
+      if (e.key === "auth_token" || e.key === null) _syncToken();
+    });
+
+    // Same-tab login: storage event does NOT fire in the tab that wrote.
+    // Poll lightly (every 2 s) so a Google sign-in completes in <2 s after
+    // the JWT is written. Cheaper than monkey-patching localStorage.
+    setInterval(_syncToken, 2000);
   }
 
   // ── Collapsible floating action button ───────────────────────────────
@@ -815,6 +824,29 @@
 
   window.addEventListener("popstate", () => _scheduleReinject(600));
 
+  // bfcache restore (browser back / forward).
+  // pageshow fires after the page is restored from the browser's back/forward
+  // cache. event.persisted is true on bfcache restores. Content scripts do
+  // NOT re-run in this case, so we must explicitly re-check the FAB.
+  window.addEventListener("pageshow", (e) => {
+    if (e.persisted) {
+      // bfcache restore — the host page may have torn down our FAB before
+      // we navigated away. Re-inject immediately + after settle.
+      _scheduleReinject(100);
+      setTimeout(() => _scheduleReinject(50), 800);
+    } else {
+      // Cold load — still verify FAB exists (defensive)
+      _scheduleReinject(200);
+    }
+  });
+
+  // Tab regains focus (user switches back to this tab).
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      _scheduleReinject(200);
+    }
+  });
+
   // ── Layer 2: MutationObserver on <html> watching for body replacement ──
   // React/Angular/Vue sometimes tear out the entire <body> and replace it.
   // This fires as soon as the new body element appears — much faster than a
@@ -911,5 +943,5 @@
     setTimeout(() => toast.remove(), 15000);
   }
 
-  console.log("[AutoApply] content script v1.10.0 loaded on", location.href, "top=", window.top===window.self);
+  console.log("[AutoApply] content script v1.11.0 loaded on", location.href, "top=", window.top===window.self);
 })();

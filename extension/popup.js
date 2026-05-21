@@ -56,15 +56,80 @@ async function apiFetch(path, opts = {}) {
 (async function init() {
   await loadApiBase();
   $("#privacyLink").href = PRIVACY_URL;
+
+  // First try to auto-pull a token from any open autoapplynow.in tab
+  // (covers the case where the user signed in on the web app but the
+  // content-script bridge hasn't fired yet for this popup session).
+  await tryPullTokenFromAppTab();
+
   chrome.storage.local.get(["autoapply_token"], async (r) => {
     if (r.autoapply_token) {
       await loadProfile(r.autoapply_token);
     } else {
       show("#authBlock");
-      setStatus("Sign in or create an account.", "info");
+      setStatus("Sign in on autoapplynow.in or click below.", "info");
     }
   });
 })();
+
+// Auto-refresh when the content script (running on autoapplynow.in) pushes
+// a freshly synced token into chrome.storage. Without this, the popup would
+// keep showing "Sign in" until the user closed and re-opened it.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.autoapply_token) {
+    const newTok = changes.autoapply_token.newValue;
+    const authVisible = $("#authBlock").style.display !== "none";
+    if (newTok && authVisible) {
+      // We were on the sign-in screen and a token just arrived — log in.
+      setStatus("✓ Detected sign-in from web app…", "ok");
+      loadProfile(newTok);
+    } else if (!newTok) {
+      // Token was cleared (user signed out on the web) — drop to sign-in.
+      show("#authBlock");
+      setStatus("Signed out.", "info");
+    }
+  }
+});
+
+// Ask any open autoapplynow.in tab to share its JWT with the extension.
+// This is a backup path for the content-script bridge: if the user signed in
+// on the web app before installing the extension (or before opening the
+// popup for the first time), this pulls the token without requiring them
+// to refresh the web tab.
+async function tryPullTokenFromAppTab() {
+  return new Promise((resolve) => {
+    if (!chrome.tabs?.query || !chrome.scripting?.executeScript) {
+      resolve();
+      return;
+    }
+    chrome.tabs.query(
+      { url: ["https://autoapplynow.in/*", "https://mango-ocean-0f1de6810.2.azurestaticapps.net/*"] },
+      (tabs) => {
+        if (!tabs || tabs.length === 0) { resolve(); return; }
+        const tabId = tabs[0].id;
+        chrome.scripting.executeScript(
+          {
+            target: { tabId },
+            func: () => {
+              try { return localStorage.getItem("auth_token"); } catch { return null; }
+            },
+          },
+          (results) => {
+            // Swallow any access error — fall through to manual sign-in.
+            void chrome.runtime.lastError;
+            const tok = results?.[0]?.result;
+            if (tok) {
+              chrome.storage.local.set({ autoapply_token: tok }, resolve);
+            } else {
+              resolve();
+            }
+          }
+        );
+      }
+    );
+  });
+}
 
 // ---- Google sign-in ----
 // Web OAuth client ID (configured in Google Cloud Console). Replace with your
