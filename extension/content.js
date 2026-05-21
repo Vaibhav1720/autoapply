@@ -4,7 +4,7 @@
   // Version guard: re-inject overrides older instances. Bump when shipping
   // breaking content-script changes so popup-driven re-injection picks up
   // the new code instead of being blocked by a stale __autoapplyInjected flag.
-  const CONTENT_SCRIPT_VERSION = "1.13.0";
+  const CONTENT_SCRIPT_VERSION = "1.14.0";
   if (window.__autoapplyVersion === CONTENT_SCRIPT_VERSION) return;
   // A stale older copy may have left a dead FAB attached to the page whose
   // chrome.runtime handle is invalid after extension reload. Remove it so we
@@ -17,6 +17,23 @@
   } catch { /* ignore */ }
   window.__autoapplyVersion = CONTENT_SCRIPT_VERSION;
   window.__autoapplyInjected = true;
+
+  // LinkedIn / lnkd.in: browse-only sites with no job-application forms.
+  // The full script (subtree mutation observers, 20k-node DOM walks, SPA
+  // history hooks, 800ms FAB polling) overwhelms LinkedIn's renderer and
+  // triggers Chrome "Aw, Snap! Error code: 5". Skip unless the user opened
+  // the tab with an explicit __autoapply autofill marker (rare on LinkedIn).
+  const _autoapplyMarkerEarly =
+    location.hash.includes("__autoapply") ||
+    /[?&]__autoapply=1\b/.test(location.search);
+  const _hostNorm = location.hostname.replace(/^www\./, "");
+  const _browseOnlyHosts = ["linkedin.com", "lnkd.in"];
+  const _isBrowseOnlyHost = _browseOnlyHosts.some(
+    (h) => _hostNorm === h || _hostNorm.endsWith("." + h),
+  );
+  if (_isBrowseOnlyHost && !_autoapplyMarkerEarly) {
+    return;
+  }
 
   // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -1000,5 +1017,5 @@
     setTimeout(() => toast.remove(), 15000);
   }
 
-  console.log("[AutoApply] content script v1.13.0 loaded on", location.href, "top=", window.top===window.self);
+  console.log("[AutoApply] content script v1.14.0 loaded on", location.href, "top=", window.top===window.self);
 })();
