@@ -4,7 +4,9 @@
   // Version guard: re-inject overrides older instances. Bump when shipping
   // breaking content-script changes so popup-driven re-injection picks up
   // the new code instead of being blocked by a stale __autoapplyInjected flag.
-  const CONTENT_SCRIPT_VERSION = "1.15.0";
+  const CONTENT_SCRIPT_VERSION = "1.16.0";
+  // Popup injects with __autoapply_lite to avoid running FAB/observers (OOM crash).
+  const LITE_MODE = window.__autoapply_lite === true;
   if (window.__autoapplyVersion === CONTENT_SCRIPT_VERSION) return;
   // A stale older copy may have left a dead FAB attached to the page whose
   // chrome.runtime handle is invalid after extension reload. Remove it so we
@@ -59,10 +61,10 @@
 
   // ── Deep DOM traversal (shadow DOM + iframes) ──────────────────────────
   // Hard caps to prevent renderer crashes on giant pages (Workday, etc.)
-  const MAX_FIELDS = 200;
-  const MAX_NODES_TRAVERSED = 20000;
-  const MAX_SHADOW_DEPTH = 8;
-  const MAX_IFRAMES = 5;
+  const MAX_FIELDS = LITE_MODE ? 120 : 200;
+  const MAX_NODES_TRAVERSED = LITE_MODE ? 6000 : 12000;
+  const MAX_SHADOW_DEPTH = LITE_MODE ? 4 : 6;
+  const MAX_IFRAMES = LITE_MODE ? 1 : 3;
 
   function traverseDeep(root, callback, state, depth = 0) {
     if (!root) return;
@@ -259,7 +261,8 @@
         if (f.length > 0) finish(f);
       });
       try {
-        mo.observe(document.documentElement, { childList: true, subtree: true });
+        const root = document.body || document.documentElement;
+        if (root) mo.observe(root, { childList: true, subtree: true });
       } catch { /* ignore */ }
       // Hard timeout fallback in case no mutations fire
       setTimeout(() => finish(getAllFields()), maxMs);
@@ -491,31 +494,9 @@
     }
   });
 
-  // ── MutationObserver for dynamic forms ─────────────────────────────────
-
-  let debounceTimer = null;
-  const observer = new MutationObserver(() => {
-    if (!isContextValid()) { observer.disconnect(); return; }
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      // Observe newly added shadow roots — bounded
-      try {
-        let registered = 0;
-        traverseDeep(document, (el) => {
-          if (registered >= 50) return;
-          if (el.shadowRoot && !el.__autoapplyObserved) {
-            el.__autoapplyObserved = true;
-            registered++;
-            try { observer.observe(el.shadowRoot, { childList: true, subtree: true }); } catch { /* ignore */ }
-          }
-        });
-      } catch { /* ignore */ }
-    }, 500);
-  });
-
-  if (document.documentElement) {
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-  }
+  // Global subtree observer disabled — it fired on every DOM tick on heavy
+  // SPAs and caused Chrome "Aw, Snap" (error 5). waitForFields() uses a
+  // short-lived observer only while the user triggers fill.
 
   // ── Auto-fill on page open from app ────────────────────────────────────
   // When the user clicks "Apply with Autofill" on autoapplynow.in, we open the
@@ -652,16 +633,9 @@
     setInterval(_syncToken, 2000);
   }
 
-  // ── Collapsible floating action button ───────────────────────────────
-  // A persistent, minimal FAB anchored to the right edge. Collapsed by
-  // default to a thin pill showing just the icon; expands on hover/click
-  // to reveal the "Autofill" label. Clicking the expanded FAB triggers
-  // smart fill. The user can collapse it by clicking the chevron or it
-  // auto-collapses after 4s of no interaction. Remembers collapsed state
-  // across pages via chrome.storage.local.
-  //
-  // Skip the FAB on the AutoApply app itself (it's our own UI) and on
-  // pages that can't contain forms (new-tab, extensions, etc.).
+  // ── Collapsible floating action button (full install only, not lite) ───
+
+  if (!LITE_MODE) (function initFabAndSpaPersistence() {
 
   function injectFAB() {
     if (isAppPage) return;
@@ -970,6 +944,8 @@
   }
   _startFABGuard();
 
+  })(); // end initFabAndSpaPersistence
+
   function showToast(message, ok) {
     const existing = document.getElementById("__autoapply_toast");
     if (existing) existing.remove();
@@ -1017,5 +993,6 @@
     setTimeout(() => toast.remove(), 15000);
   }
 
-  console.log("[AutoApply] content script v1.15.0 loaded on", location.href, "top=", window.top===window.self);
+  console.log("[AutoApply] content script v1.16.0", LITE_MODE ? "lite" : "full",
+    "on", location.href, "top=", window.top===window.self);
 })();

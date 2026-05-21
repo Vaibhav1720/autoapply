@@ -57,6 +57,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   // on _stopSearch() / dispose() / browser unload so requests are killed
   // server-side instead of just being dropped client-side.
   CancelToken? _searchCancelToken;
+  CancelToken? _linkedInCancelToken;
   // Browser beforeunload subscription so we can cancel in-flight requests
   // when the user reloads or closes the tab.
   StreamSubscription<html.Event>? _unloadSub;
@@ -142,6 +143,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   void dispose() {
     try {
       _searchCancelToken?.cancel('screen-disposed');
+      _linkedInCancelToken?.cancel('screen-disposed');
     } catch (_) {}
     _unloadSub?.cancel();
     _queryCtrl.dispose();
@@ -427,6 +429,20 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       html.window.localStorage[_kDiscoverCacheKey] = jsonEncode(payload);
     } catch (e) {
       debugPrint('[discover] cache save failed: $e');
+    }
+  }
+
+  void _stopLinkedInSearch() {
+    try {
+      _linkedInCancelToken?.cancel('user-stopped');
+    } catch (_) {}
+    _linkedInCancelToken = null;
+    if (mounted) {
+      setState(() => _linkedInLoading = false);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
+        content: Text('LinkedIn search cancelled.'),
+        duration: Duration(seconds: 2),
+      ));
     }
   }
 
@@ -933,6 +949,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       ));
       return;
     }
+    try {
+      _linkedInCancelToken?.cancel('superseded');
+    } catch (_) {}
+    _linkedInCancelToken = CancelToken();
+
     setState(() {
       _linkedInLoading = true;
       _linkedInError = null;
@@ -950,7 +971,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         'searchId': _newSearchId(),
         'industry': _industryId,
         'pivot': _pivotMode,
-      }, options: Options(
+      }, cancelToken: _linkedInCancelToken, options: Options(
         // LinkedIn search fetches ~1000 cards + AI scoring. Takes 60-120s.
         receiveTimeout: const Duration(minutes: 5),
         sendTimeout: const Duration(minutes: 1),
@@ -1442,7 +1463,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         icon: const Icon(Icons.feedback_outlined, color: Colors.white, size: 20),
         label: const Text('Feedback', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
       ),
-      body: RefreshIndicator(
+      body: Stack(
+        children: [
+          RefreshIndicator(
         // Pull-to-refresh used to fire a brand-new search, which surprised
         // users ("why is it scraping again, I just wanted to scroll up?")
         // and left a half-finished search churning on the backend if the
@@ -1630,6 +1653,29 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             ],
           ),
         ),
+          ),
+          if (_loading || _linkedInLoading)
+            _SearchProgressOverlay(
+              onStop: _loading ? _stopSearch : _stopLinkedInSearch,
+              child: _LoadingHero(
+                elevated: true,
+                title: _loading
+                    ? 'Curating jobs made for you'
+                    : 'Searching LinkedIn for you',
+                progressLabel: _loading
+                    ? (_companiesTotal > 0
+                        ? (_companiesScanned == 0
+                            ? 'Scanning $_companiesTotal companies…'
+                            : '$_companiesScanned of $_companiesTotal companies scanned')
+                        : 'Starting company scan…')
+                    : 'Fetching and ranking LinkedIn roles…',
+                scanned: _companiesScanned,
+                total: _companiesTotal,
+                showCompanyProgress: _loading,
+                onStop: _loading ? _stopSearch : _stopLinkedInSearch,
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -2732,11 +2778,24 @@ class _HeroSearch extends StatelessWidget {
   }
 
   Widget _statusRow() {
+    // Full-screen overlay handles the rich loading UI; keep hero row light.
     if (loading) {
-      return _LoadingHero(
-        scanned: scanned,
-        total: total,
-        onStop: onStop,
+      return Row(
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppTheme.primary.withValues(alpha: 0.7),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'Search running — see progress above',
+            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary.withValues(alpha: 0.9)),
+          ),
+        ],
       );
     }
     if (totalFound > 0) {
@@ -3375,25 +3434,115 @@ class _UpgradeFeatureRow extends StatelessWidget {
 }
 
 
+/// Dimmed full-screen layer so users know the app is working, not frozen.
+class _SearchProgressOverlay extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onStop;
+
+  const _SearchProgressOverlay({
+    required this.child,
+    required this.onStop,
+  });
+
+  @override
+  State<_SearchProgressOverlay> createState() => _SearchProgressOverlayState();
+}
+
+class _SearchProgressOverlayState extends State<_SearchProgressOverlay>
+    with TickerProviderStateMixin {
+  late final AnimationController _entry;
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _entry = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 280),
+    )..forward();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _entry.dispose();
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final curve = CurvedAnimation(parent: _entry, curve: Curves.easeOutCubic);
+    final backdropAlpha = Tween<double>(begin: 0.58, end: 0.72).animate(
+      CurvedAnimation(parent: _pulse, curve: Curves.easeInOut),
+    );
+    return Positioned.fill(
+      child: FadeTransition(
+        opacity: curve,
+        child: AnimatedBuilder(
+          animation: backdropAlpha,
+          builder: (context, child) => Material(
+            color: Colors.black.withValues(alpha: backdropAlpha.value),
+            child: child,
+          ),
+          child: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                child: FadeTransition(
+                  opacity: curve,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.92, end: 1.0).animate(curve),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 580),
+                      child: widget.child,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Rich animated loading state shown while job discovery is running.
 class _LoadingHero extends StatefulWidget {
   final int scanned;
   final int total;
   final VoidCallback onStop;
+  final bool elevated;
+  final String title;
+  final String progressLabel;
+  final bool showCompanyProgress;
 
   const _LoadingHero({
     required this.scanned,
     required this.total,
     required this.onStop,
+    this.elevated = false,
+    this.title = 'Curating jobs made for you',
+    this.progressLabel = '',
+    this.showCompanyProgress = true,
   });
 
   @override
   State<_LoadingHero> createState() => _LoadingHeroState();
 }
 
-class _LoadingHeroState extends State<_LoadingHero> {
+class _LoadingHeroState extends State<_LoadingHero>
+    with TickerProviderStateMixin {
   int _tipIndex = 0;
   Timer? _tipTimer;
+  Timer? _elapsedTimer;
+  int _elapsedSec = 0;
+  late final AnimationController _pulse;
+  late final AnimationController _glow;
 
   static const _tips = [
     'Hand-picking roles that match your skills, experience and goals\u2026',
@@ -3409,15 +3558,36 @@ class _LoadingHeroState extends State<_LoadingHero> {
   @override
   void initState() {
     super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+    _glow = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    )..repeat(reverse: true);
     _tipTimer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (mounted) setState(() => _tipIndex = (_tipIndex + 1) % _tips.length);
+    });
+    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _elapsedSec++);
     });
   }
 
   @override
   void dispose() {
     _tipTimer?.cancel();
+    _elapsedTimer?.cancel();
+    _pulse.dispose();
+    _glow.dispose();
     super.dispose();
+  }
+
+  String _formatElapsed(int sec) {
+    if (sec < 60) return '${sec}s';
+    final m = sec ~/ 60;
+    final s = sec % 60;
+    return '${m}m ${s}s';
   }
 
   @override
@@ -3430,35 +3600,142 @@ class _LoadingHeroState extends State<_LoadingHero> {
     final tipFontSize = isCompact ? 15.0 : 17.0;
     final headlineFontSize = isCompact ? 17.0 : 20.0;
 
-    return Container(
+    final pulseScale = Tween<double>(begin: 1.0, end: 1.08).animate(
+      CurvedAnimation(parent: _pulse, curve: Curves.easeInOut),
+    );
+    final glowBorder = Tween<double>(begin: 0.25, end: 0.65).animate(
+      CurvedAnimation(parent: _glow, curve: Curves.easeInOut),
+    );
+    final glowShadow = Tween<double>(begin: 0.22, end: 0.42).animate(
+      CurvedAnimation(parent: _glow, curve: Curves.easeInOut),
+    );
+
+    return AnimatedBuilder(
+      animation: _glow,
+      builder: (context, child) => Container(
       padding: EdgeInsets.all(isCompact ? 18 : 24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            const Color(0xFF6366f1).withValues(alpha: 0.06),
-            const Color(0xFF8b5cf6).withValues(alpha: 0.04),
+            const Color(0xFF6366f1).withValues(alpha: widget.elevated ? 0.16 : 0.08),
+            const Color(0xFF8b5cf6).withValues(alpha: widget.elevated ? 0.1 : 0.05),
             Colors.white,
           ],
         ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF6366f1).withValues(alpha: 0.15)),
+        borderRadius: BorderRadius.circular(widget.elevated ? 20 : 16),
+        border: Border.all(
+          color: const Color(0xFF6366f1).withValues(alpha: glowBorder.value),
+          width: widget.elevated ? 2 : 1.5,
+        ),
+        boxShadow: widget.elevated
+            ? [
+                BoxShadow(
+                  color: const Color(0xFF6366f1).withValues(alpha: glowShadow.value),
+                  blurRadius: 48,
+                  spreadRadius: 2,
+                  offset: const Offset(0, 18),
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.14),
+                  blurRadius: 28,
+                  offset: const Offset(0, 10),
+                ),
+              ]
+            : null,
+      ),
+      child: child,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header row
+          // Live badge + elapsed — proves the app is still working
           Row(
             children: [
               Container(
-                width: isCompact ? 40 : 48,
-                height: isCompact ? 40 : 48,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: const LinearGradient(colors: [Color(0xFF6366f1), Color(0xFF8b5cf6)]),
+                  color: const Color(0xFF22c55e).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFF22c55e).withValues(alpha: 0.35)),
                 ),
-                child: Icon(Icons.auto_awesome, color: Colors.white, size: isCompact ? 20 : 24),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ScaleTransition(
+                      scale: pulseScale,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF22c55e),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Live',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF166534),
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '${_formatElapsed(_elapsedSec)} elapsed',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF6b7280),
+                ),
+              ),
+              const Spacer(),
+              if (_elapsedSec >= 45)
+                Text(
+                  'Still working — large scan',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppTheme.primary.withValues(alpha: 0.85),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+            ],
+          ),
+          SizedBox(height: isCompact ? 12 : 14),
+          // Header row
+          Row(
+            children: [
+              ScaleTransition(
+                scale: pulseScale,
+                child: Container(
+                  width: isCompact ? 40 : 48,
+                  height: isCompact ? 40 : 48,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF6366f1), Color(0xFF8b5cf6)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF6366f1).withValues(alpha: 0.45),
+                        blurRadius: 12,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    Icons.auto_awesome,
+                    color: Colors.white,
+                    size: isCompact ? 20 : 24,
+                  ),
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -3466,7 +3743,7 @@ class _LoadingHeroState extends State<_LoadingHero> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Curating jobs made for you',
+                      widget.title,
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: headlineFontSize,
@@ -3475,13 +3752,16 @@ class _LoadingHeroState extends State<_LoadingHero> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    if (widget.total > 0)
-                      Text(
-                        widget.scanned == 0
-                            ? 'Scanning ${widget.total} companies\u2026'
-                            : '${widget.scanned} of ${widget.total} companies scanned ($pct%)',
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF6b7280)),
-                      ),
+                    Text(
+                      widget.progressLabel.isNotEmpty
+                          ? widget.progressLabel
+                          : (widget.showCompanyProgress && widget.total > 0
+                              ? (widget.scanned == 0
+                                  ? 'Scanning ${widget.total} companies\u2026'
+                                  : '${widget.scanned} of ${widget.total} companies scanned ($pct%)')
+                              : 'Working\u2026'),
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF6b7280)),
+                    ),
                   ],
                 ),
               ),
@@ -3501,15 +3781,21 @@ class _LoadingHeroState extends State<_LoadingHero> {
 
           SizedBox(height: isCompact ? 14 : 18),
 
-          // Progress bar
+          // Progress bar (indeterminate shimmer when total unknown)
           ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: widget.total > 0 ? progress : null,
-              minHeight: 6,
-              backgroundColor: const Color(0xFF6366f1).withValues(alpha: 0.1),
-              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366f1)),
-            ),
+            borderRadius: BorderRadius.circular(8),
+            child: widget.total > 0
+                ? LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 8,
+                    backgroundColor: const Color(0xFF6366f1).withValues(alpha: 0.12),
+                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366f1)),
+                  )
+                : const LinearProgressIndicator(
+                    minHeight: 8,
+                    backgroundColor: Color(0x1A6366F1),
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366f1)),
+                  ),
           ),
 
           SizedBox(height: isCompact ? 16 : 20),
@@ -3558,7 +3844,9 @@ class _LoadingHeroState extends State<_LoadingHero> {
 
           // Reassurance footer
           Text(
-            'This usually takes a minute or two \u2014 we\u2019re searching across thousands of roles to bring back only the ones worth your time.',
+            _elapsedSec < 30
+                ? 'This usually takes a minute or two \u2014 we\u2019re searching across thousands of roles to bring back only the ones worth your time.'
+                : 'Your search is still running. You can stop anytime and try fewer companies or a narrower location for faster results.',
             style: TextStyle(
               fontSize: isCompact ? 12 : 13,
               color: const Color(0xFF6b7280),

@@ -315,12 +315,64 @@ function ensureHostPermission(tabUrl) {
   });
 }
 
+function _isBlockedAutofillUrl(url) {
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, "");
+    return h === "linkedin.com" || h.endsWith(".linkedin.com") || h === "lnkd.in";
+  } catch {
+    return false;
+  }
+}
+
+/** Top-frame only, lite mode — avoids OOM from injecting into every iframe. */
+function injectLiteContentScript(tabId) {
+  return new Promise((resolve) => {
+    chrome.scripting.executeScript(
+      { target: { tabId }, func: () => { window.__autoapply_lite = true; } },
+      () => {
+        void chrome.runtime.lastError;
+        chrome.scripting.executeScript(
+          { target: { tabId }, files: ["content.js"] },
+          () => {
+            void chrome.runtime.lastError;
+            resolve(true);
+          }
+        );
+      }
+    );
+  });
+}
+
+function sendMessageTopFrame(tabId, type) {
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(tabId, { type }, { frameId: 0 }, (resp) => {
+      const err = chrome.runtime.lastError;
+      if (err) resolve({ filled: 0, error: err.message });
+      else resolve(resp || { filled: 0, error: "No response from page" });
+    });
+  });
+}
+
 function sendToContent(type, callback) {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (!tabs[0]) { callback?.({ filled: 0, error: "No active tab" }); return; }
     const tabId = tabs[0].id;
     const tabUrl = tabs[0].url || "";
-    ensureHostPermission(tabUrl).then((granted) => {
+
+    if (_isBlockedAutofillUrl(tabUrl)) {
+      callback?.({
+        filled: 0,
+        error: "LinkedIn job pages can't be autofilled. Click Apply on the company site, then use AutoApply there.",
+      });
+      return;
+    }
+
+    if (!tabUrl.startsWith("http")) {
+      callback?.({ filled: 0, error: "Open a job application page first, then try Autofill." });
+      return;
+    }
+
+    ensureHostPermission(tabUrl).then(async (granted) => {
       if (!granted) {
         callback?.({
           filled: 0,
@@ -328,68 +380,25 @@ function sendToContent(type, callback) {
         });
         return;
       }
-    const inject = () => new Promise((resolve) => {
-      let done = false;
-      const finish = (frames) => { if (done) return; done = true; resolve(frames); };
-      // Hard timeout — chrome.scripting.executeScript can hang forever if a
-      // child frame is still loading or the page has dozens of cross-origin
-      // iframes (Netflix careers, Workday widgets, etc.).
-      setTimeout(() => finish([0]), 6000); // fall back to top frame only
-      chrome.scripting.executeScript(
-        { target: { tabId, allFrames: true }, files: ["content.js"] },
-        (results) => {
-          void chrome.runtime.lastError;
-          const frames = (results || []).map((r) => r.frameId);
-          finish(frames.length ? frames : [0]);
-        }
-      );
-    });
-    const askFrames = (frameIds) => new Promise((resolve) => {
-      if (!frameIds.length) { resolve({ filled: 0, error: "No frames available" }); return; }
-      let best = { filled: 0, aiCount: 0, asked: 0 };
-      let pending = frameIds.length;
-      let lastError = null;
-      let resolved = false;
+
+      let result = await sendMessageTopFrame(tabId, type);
       const score = (r) => (r?.filled || 0) + (r?.aiCount || 0) + (r?.asked || 0);
-      const finish = () => {
-        if (resolved) return;
-        resolved = true;
-        if (!score(best) && lastError) best = { filled: 0, error: lastError };
-        console.log("[AutoApply popup] frames=", frameIds.length, "best=", best);
-        resolve(best);
-      };
-      // Hard ceiling: even if a frame's content script never replies (CSP /
-      // sandboxed iframe / hung fetch in background), surface what we have
-      // after 30 s instead of leaving the popup spinning forever.
-      const hardTimer = setTimeout(finish, 30000);
-      frameIds.forEach((frameId) => {
-        chrome.tabs.sendMessage(tabId, { type }, { frameId }, (resp) => {
-          const err = chrome.runtime.lastError;
-          if (err) lastError = err.message;
-          if (resp && score(resp) > score(best)) best = resp;
-          else if (resp?.error && !score(best)) lastError = resp.error;
-          pending--;
-          if (pending === 0) { clearTimeout(hardTimer); finish(); }
-        });
-      });
-    });
-    // First pass
-    inject().then((frames) => {
-      console.log("[AutoApply popup] initial frames injected:", frames);
-      askFrames(frames).then((first) => {
-        if ((first.filled || 0) + (first.aiCount || 0) + (first.asked || 0) > 0) {
-          callback?.(first);
-          return;
-        }
-        // Second pass: late-loading iframe (Greenhouse, etc.). Wait, re-inject, retry.
-        setTimeout(() => {
-          inject().then((frames2) => {
-            console.log("[AutoApply popup] retry frames injected:", frames2);
-            askFrames(frames2).then(callback);
-          });
-        }, 2500);
-      });
-    });
+      if (score(result) > 0) {
+        callback?.(result);
+        return;
+      }
+
+      await injectLiteContentScript(tabId);
+      result = await sendMessageTopFrame(tabId, type);
+      if (score(result) > 0) {
+        callback?.(result);
+        return;
+      }
+
+      // One retry for slow SPAs (single top-frame inject only).
+      await new Promise((r) => setTimeout(r, 2000));
+      result = await sendMessageTopFrame(tabId, type);
+      callback?.(result);
     });
   });
 }
