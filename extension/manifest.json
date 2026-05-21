@@ -2,12 +2,13 @@
   "manifest_version": 3,
   "default_locale": "en",
   "name": "__MSG_extName__",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "__MSG_extShortDescription__",
-  "homepage_url": "https://mango-ocean-0f1de6810.2.azurestaticapps.net",
+  "homepage_url": "https://autoapplynow.in",
   "permissions": ["activeTab", "storage", "scripting", "identity"],
   "host_permissions": [
-    "https://autoapply-func-dev.azurewebsites.net/*",
+    "https://autoapplynow.in/*",
+    "https://mango-ocean-0f1de6810.2.azurestaticapps.net/*",
     "https://autoapply-func-dev.azurewebsites.net/*",
     "https://*.greenhouse.io/*",
     "https://boards.greenhouse.io/*",
@@ -24,6 +25,16 @@
   ],
   "optional_host_permissions": [
     "https://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://autoapplynow.in/*",
+        "https://mango-ocean-0f1de6810.2.azurestaticapps.net/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
   ],
   "background": {
     "service_worker": "background.js"

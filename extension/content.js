@@ -4,7 +4,7 @@
   // Version guard: re-inject overrides older instances. Bump when shipping
   // breaking content-script changes so popup-driven re-injection picks up
   // the new code instead of being blocked by a stale __autoapplyInjected flag.
-  const CONTENT_SCRIPT_VERSION = "1.7.0";
+  const CONTENT_SCRIPT_VERSION = "1.8.0";
   if (window.__autoapplyVersion === CONTENT_SCRIPT_VERSION) return;
   // A stale older copy may have left a dead FAB attached to the page whose
   // chrome.runtime handle is invalid after extension reload. Remove it so we
@@ -542,10 +542,10 @@
   // When running on the AutoApply app, auto-sync JWT + signal extension presence
 
   const APP_HOSTS = [
-    "autoapply-func-dev.azurewebsites.net",
+    "autoapplynow.in",
+    "mango-ocean-0f1de6810.2.azurestaticapps.net",
     "autoapply-func-dev.azurewebsites.net",
     "localhost",
-    "azurestaticapps.net",
   ];
   const isAppPage = APP_HOSTS.some(h => location.hostname.includes(h)) ||
     document.querySelector('meta[name="autoapply-app"]');
@@ -826,5 +826,5 @@
     setTimeout(() => toast.remove(), 15000);
   }
 
-  console.log("[AutoApply] content script v1.7.0 loaded on", location.href, "top=", window.top===window.self);
+  console.log("[AutoApply] content script v1.8.0 loaded on", location.href, "top=", window.top===window.self);
 })();
