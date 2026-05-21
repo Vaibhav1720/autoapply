@@ -1,0 +1,1957 @@
+================================================================================
+                    AutoApply — Job Auto-Application Platform
+                    COMPLETE DESIGN DOCUMENT (HLD + LLD)
+================================================================================
+
+Date: April 3, 2026
+Status: Design Phase
+
+--------------------------------------------------------------------------------
+NOTE (May 2026): Redis is NO LONGER part of the architecture. Sections that
+mention "Redis", "Phase 7 cache", or "L2 - Redis" below are historical and
+have been superseded. The runtime caching layer is Cosmos DB:
+  - 1-hour scrape cache  (per company/query/location)  — see _scrape_company_cached
+  - 24-hour job-embedding cache                       — see _cache_job_embeddings
+  - In-process LinkedIn TTL cache (10 min)            — see _li_bulk_fetch
+The Redis Bicep resource and REDIS_HOST/REDIS_KEY app settings have been
+removed; the autoapply-redis-dev instance has been deleted.
+--------------------------------------------------------------------------------
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+PART A: PROJECT OVERVIEW
+  A.1  Problem Statement
+  A.2  Tech Stack
+  A.3  Architecture Overview Diagram
+
+PART B: HIGH-LEVEL DESIGN (HLD)
+  B.1  Backend HLD
+    B.1.1  System Overview & Ingestion Layer
+    B.1.2  Backend Service Architecture
+    B.1.3  Auto-Apply Engine Flow
+    B.1.4  Data Layer Architecture
+    B.1.5  Authentication & Security Flow
+    B.1.6  API Endpoint Summary
+  B.2  Frontend HLD
+    B.2.1  App Navigation Architecture
+    B.2.2  Screen Flow Diagram
+    B.2.3  State Management Architecture (Provider)
+    B.2.4  UI Component Hierarchy
+    B.2.5  Service Layer (API Communication)
+    B.2.6  Theming & Design System
+    B.2.7  Offline & Error Handling Strategy
+
+PART C: LOW-LEVEL DESIGN (LLD)
+  C.1  Cosmos DB Data Models (Full Schemas)
+  C.2  Azure Functions API — Detailed Endpoint Specs
+  C.3  Flutter App — Detailed File Structure
+  C.4  Azure Functions — Detailed File Structure
+  C.5  Auto-Apply Queue Processing — Detailed Algorithm
+  C.6  AI Matching — Detailed Algorithm
+  C.7  Resume Parser — Detailed Flow
+  C.8  Cover Letter Generator — Detailed Prompt Design
+  C.9  Error Handling & Retry Strategies
+  C.10 Caching Strategy (Redis)
+  C.11 Infrastructure as Code (Bicep Outline)
+  C.12 CI/CD Pipeline Design
+
+================================================================================
+PART A: PROJECT OVERVIEW
+================================================================================
+
+A.1 PROBLEM STATEMENT
+---------------------
+Job seekers spend hours manually applying to jobs on multiple portals.
+AutoApply automates this by collecting user data once and auto-applying to
+selected companies/roles via API integration, email, or browser automation.
+
+A.2 TECH STACK
+--------------
+- Frontend:      Flutter (Android + Web from single codebase)
+- Backend:       Azure Functions (Python) — serverless, cost-efficient
+- Database:      Azure Cosmos DB (NoSQL — flexible profile/job schemas)
+- File Storage:  Azure Blob Storage (resumes, cover letters, documents)
+- Auth:          Azure AD B2C (social + email login)
+- AI:            Azure OpenAI (cover letter generation, job matching)
+- Search:        Cosmos DB vector search (DiskANN) + full-text search
+                 (upgrade to Azure AI Search only if scale demands)
+- Queue:         Azure Storage Queues (Phase 5) → Azure Service Bus (Phase 7)
+- Notifications: Azure Notification Hubs (push) + Azure Communication Services (email)
+- Job Ingestion: Azure Functions (timer-triggered scrapers)
+- Cache:         Azure Redis Cache (deferred to Phase 7)
+- CI/CD:         Azure DevOps Pipelines
+- Gateway:       Azure Functions direct HTTPS (Phases 2-7) → APIM Consumption (Phase 8)
+
+BUDGET STRATEGY ($100/month cap):
+  Phase 1: $0       (local only)
+  Phase 2-3: ~$2    (Cosmos DB Free Tier, Blob, B2C Free)
+  Phase 4: ~$15-25  (Azure OpenAI pay-per-token, Document Intelligence)
+  Phase 5-6: ~$25-40 (Storage Queues, ACI on-demand, Communication Services)
+  Phase 7: ~$55-75  (Redis $16, Service Bus $10, Notification Hubs Free)
+  Phase 8: ~$75-100 (APIM Consumption ~$3.50/M calls)
+
+A.3 ARCHITECTURE OVERVIEW DIAGRAM
+----------------------------------
+
+  PHASES 2-7 (Direct HTTPS, no APIM):
+
+  +-------------------------------------------------------------+
+  |                Flutter App (Android + Web)                    |
+  |  +-----------+ +-----------+ +-----------+ +-------------+  |
+  |  |Onboarding | |Companies  | | Job Feed  | |  Tracker     |  |
+  |  +-----+-----+ +-----+-----+ +-----+-----+ +------+------+  |
+  +--------|--------------|--------------|--------------+--------+
+           |              |              |              |
+           v              v              v              v
+  +-------------------------------------------------------------+
+  |   Azure Functions (API Layer — direct HTTPS + JWT auth)      |
+  |   * JWT validated in Functions middleware (python-jose)      |
+  |   * CORS configured on Functions host                        |
+  +-----------------------------+-------------------------------+
+                                |
+           +--------------------+--------------------+
+           v                    v                    v
+  +----------------+  +---------------+  +------------------+
+  |Cosmos DB       |  |Azure OpenAI   |  |Azure Blob        |
+  |(Data + Vector  |  |(Cover Letter  |  |Storage            |
+  | Search)        |  | + Embeddings) |  |(Resumes, Docs)   |
+  +-------+--------+  +---------------+  +------------------+
+          |
+     +----+--------+---------------+
+     v              v              v
+  +------------+ +------------+ +--------------------+
+  |Storage     | |Communi-    | |Azure Container     |
+  |Queues      | |cation Svcs | |Instances           |
+  |(Phase 5)   | |(Email)     | |(Browser Automate)  |
+  +------------+ +------------+ +--------------------+
+
+  PHASE 8 (APIM Consumption tier added as gateway):
+
+  Flutter App → APIM Consumption → Azure Functions → Backend Services
+
+
+================================================================================
+PART B: HIGH-LEVEL DESIGN (HLD)
+================================================================================
+
+=======================================
+B.1 BACKEND HLD
+=======================================
+
+B.1.1 SYSTEM OVERVIEW & INGESTION LAYER
+-----------------------------------------
+
+External Systems:
+  - LinkedIn API
+  - Indeed API
+  - Glassdoor API
+  - Company Career Portals
+
+Ingestion Layer (Azure Functions — Timer Triggered):
+  - LinkedIn Scraper  ]
+  - Indeed Scraper    ]-- Runs every 6 hours
+  - Glassdoor Scraper ]-- Normalizes & deduplicates data
+         |
+         v
+Data Processing Pipeline:
+  1. Normalizer (Clean & Validate)
+  2. Embedding Engine (Azure OpenAI, text-embedding-3)
+  3. Azure AI Search Index Update
+  4. Write to Cosmos DB (Jobs + Companies containers)
+
+
+B.1.2 BACKEND SERVICE ARCHITECTURE
+------------------------------------
+
+  Clients (Flutter Android + Web)
+         |  HTTPS (JWT Bearer Token)
+         v
+  Azure Functions (Direct HTTPS — no APIM until Phase 8)
+    - JWT Validation (python-jose, validates B2C token directly)
+    - CORS (configured in host.json)
+    - API Versioning (/api/v1/*)
+    - Rate Limiting (in-memory per-user counter; APIM in Phase 8)
+         |
+    +----+----------+--------------+
+    v               v              v
+  PROFILE API    DISCOVERY API   APPLICATION API
+  (Functions)    (Functions)     (Functions)
+
+  POST /profile   GET /companies    POST /applications
+  GET  /profile   GET /companies/   GET  /applications
+  PUT  /profile       {id}          GET  /applications/{id}
+  POST /resume    GET /jobs         PUT  /applications/{id}/status
+    /upload       GET /jobs/{id}    POST /auto-apply
+  POST /resume    GET /jobs/match   GET  /auto-apply/queue
+    /parse        POST /jobs/search DELETE /auto-apply/queue/{id}
+                                    GET  /dashboard/stats
+         |               |              |
+         v               v              v
+  SHARED SERVICE LAYER:
+    - Auth Middleware (Token Validation, User Context, Role Check)
+    - AI Service (Embeddings, Cover Letter Gen, Job Match, Resume Parse)
+    - Storage Service (Blob CRUD, SAS Token Gen, Resume Storage)
+    - Notification Service (Push, Email, In-App)
+
+
+B.1.3 AUTO-APPLY ENGINE FLOW (CORE BACKEND)
+---------------------------------------------
+
+  User clicks "Auto-Apply"
+         |
+         v
+  Application API: POST /auto-apply
+         |
+         v
+  Validation Layer:
+    - Daily limit check (Cosmos DB counter doc per userId+date)
+    - Duplicate check
+    - Blacklist check
+    - Profile completeness check
+    - Max 20 jobIds per request
+         | (Pass)
+         v
+  Azure Storage Queue "auto-apply-queue" (Phase 5-6)
+  Azure Service Bus "auto-apply-queue"   (Phase 7+, adds DLQ)
+    Message: { userId, jobId, companyId, applicationId, applyMethod, priority }
+         |
+         v
+  Queue Processor (Queue-Triggered Function)
+         |
+    +----+--------+--------------+
+    v              v              v
+  API Apply     Email Apply    Browser Apply
+  (Direct API   (Generate      (Azure Container
+  call to job    cover letter   Instance with
+  portal)        + send email   Playwright fills
+                 with resume)   forms)
+         |              |              |
+         +------+-------+--------------+
+                v
+  Result Handler:
+    - Update Cosmos DB (status: applied or failed)
+    - Send notification to user
+    - Retry on failure (max 3 attempts)
+    - Log to Application Insights
+
+
+B.1.4 DATA LAYER ARCHITECTURE
+-------------------------------
+
+Azure Cosmos DB (SQL API, Multi-region):
+  +---------------------------+  +---------------------------+
+  | Container: profiles       |  | Container: companies      |
+  | Partition: /userId        |  | Partition: /industry      |
+  |                           |  |                           |
+  | - UserProfile             |  | - Company                 |
+  | - UserPreferences         |  | - CompanyStats            |
+  | - OnboardingState         |  |                           |
+  +---------------------------+  +---------------------------+
+
+  +---------------------------+  +---------------------------+
+  | Container: jobs           |  | Container: applications   |
+  | Partition: /companyId     |  | Partition: /userId        |
+  | Vector Index: DiskANN     |  |                           |
+  |   (embedding, cosine,     |  | - Application             |
+  |    1536 dims)             |  | - StatusHistory           |
+  | - Job (with embedding)    |  | - AutoApplyLog            |
+  +---------------------------+  +---------------------------+
+
+  NOTE on /companyId partition: Acceptable for early scale. If large
+  companies (Microsoft, Google) cause hot partitions at volume, migrate
+  to synthetic key: {companyId}-{hash(id) % 10}. Re-evaluate at Phase 7.
+
+Azure Blob Storage:
+  resumes/{userId}/          - resume_v1.pdf, resume_v2.pdf
+  cover-letters/{userId}/    - {jobId}.pdf, {jobId}.docx
+  company-logos/{companyId}/ - logo.png
+
+Cosmos DB Vector Search (replaces Azure AI Search — saves $75/month):
+  jobs container:
+    Vector index policy: DiskANN, cosine similarity, 1536 dimensions
+    Full-text search: Cosmos DB CONTAINS + ORDER BY scoring
+    Vector search: VectorDistance() function for KNN queries
+    Filters: isActive, expiresAt, location, jobType, companyId
+  companies container:
+    Full-text search: CONTAINS on name, industry
+    Filters: industry, location, size, rating
+
+Azure Redis Cache:
+  Key Patterns:
+    company:list:{industry}:{page}    -> 5 min TTL
+    company:detail:{companyId}        -> 15 min TTL
+    jobs:trending                     -> 10 min TTL
+    user:matchcache:{userId}:{hash}   -> 30 min TTL
+    user:applylimit:{userId}:{date}   -> 24h TTL (daily apply counter)
+
+
+B.1.5 AUTHENTICATION & SECURITY FLOW
+---------------------------------------
+
+  Flutter App ---> Azure AD B2C ---> Identity Providers
+                   - Sign-up          - Google
+                   - Sign-in          - LinkedIn
+                   - Password Reset   - Email/Pass
+       |
+       | JWT (id_token + access_token)
+       v
+  Azure Functions (Direct HTTPS — Phases 2-7)
+    Auth Middleware (python-jose):
+    - Validates JWT signature against B2C JWKS endpoint
+    - Checks audience (client_id)
+    - Checks issuer (B2C tenant URL)
+    - Extracts userId from 'sub' claim (NO X-User-Id header)
+    - Enforces resource ownership
+    - Role-based access (user/admin)
+    - In-memory rate limiting per userId
+    Data Isolation:
+    - All queries scoped to userId
+    - Cosmos DB partition = userId
+    - Blob paths = /{userId}/...
+
+  Phase 8 Addition (APIM Consumption tier):
+    - APIM added as gateway in front of Functions
+    - validate-jwt policy (defense-in-depth, second layer)
+    - Rate limiting (100 req/min per user)
+    - Response caching (5 min TTL)
+    - CORS policy
+    - Functions middleware KEPT as defense-in-depth
+
+
+B.1.6 API ENDPOINT SUMMARY
+-----------------------------
+
+Group       | Method | Endpoint                      | Description
+------------|--------|-------------------------------|----------------------------
+Auth        | POST   | /api/v1/auth/validate         | Validate B2C token
+Profile     | POST   | /api/v1/profile               | Create user profile
+Profile     | GET    | /api/v1/profile               | Get current user profile
+Profile     | PUT    | /api/v1/profile               | Update profile
+Profile     | POST   | /api/v1/profile/resume        | Upload resume to Blob
+Profile     | POST   | /api/v1/profile/resume/parse  | AI-parse resume
+Companies   | GET    | /api/v1/companies             | List companies (paginated)
+Companies   | GET    | /api/v1/companies/{id}        | Get company detail
+Companies   | POST   | /api/v1/companies/search      | Search companies (AI Search)
+Companies   | POST   | /api/v1/companies/{id}/follow  | Follow a company
+Jobs        | GET    | /api/v1/jobs                  | List jobs (filtered)
+Jobs        | GET    | /api/v1/jobs/{id}             | Get job detail
+Jobs        | POST   | /api/v1/jobs/search           | Search jobs (AI Search)
+Jobs        | GET    | /api/v1/jobs/match            | Get AI-matched jobs
+Apply       | POST   | /api/v1/applications          | Manual apply to a job
+Apply       | GET    | /api/v1/applications          | List user applications
+Apply       | GET    | /api/v1/applications/{id}     | Get application detail
+Apply       | POST   | /api/v1/auto-apply            | Queue jobs for auto-apply
+Apply       | GET    | /api/v1/auto-apply/queue      | View pending queue
+Apply       | DELETE | /api/v1/auto-apply/queue/{id} | Cancel queued application
+Apply       | PUT    | /api/v1/auto-apply/settings   | Update auto-apply prefs
+Dashboard   | GET    | /api/v1/dashboard/stats       | Get application statistics
+Dashboard   | GET    | /api/v1/dashboard/timeline    | Get chart data
+
+
+=======================================
+B.2 FRONTEND HLD
+=======================================
+
+B.2.1 APP NAVIGATION ARCHITECTURE
+------------------------------------
+
+  APP ENTRY (main.dart)
+  MaterialApp -> MultiProvider (state) -> Router
+         |
+    +----+----------+----------------+
+    v               v                v
+  NOT LOGGED IN   ONBOARDING       LOGGED IN + ONBOARDED
+  (Auth Flow)     NOT COMPLETE     (Main Shell)
+    |               |                |
+    v               v                v
+  Login Screen    Onboard Stepper  MAIN SHELL (Bottom Nav Bar)
+  Register Screen (7 steps)        +------+------+------+-----+
+                                   | Home | Jobs | Apply| Me  |
+                                   +------+------+------+-----+
+
+
+B.2.2 SCREEN FLOW DIAGRAM
+----------------------------
+
+AUTH FLOW:
+  Splash Screen -> Login Screen -> Azure AD B2C Web View
+                                   (Google / LinkedIn / Email)
+                                        | Token received
+                                        v
+                                   Check: isOnboarded?
+                                    No          Yes
+                                    |            |
+                                    v            v
+                                 Onboarding   Main Shell
+
+ONBOARDING FLOW (Stepper - 6 Steps):
+  Step 1 (Personal Info) -> Step 2 (Education) -> Step 3 (Experience)
+  -> Step 4 (Skills & Prefs) -> Step 5 (Docs/Resume) -> Step 6 (Review & Save)
+  -> Main Shell
+
+MAIN SHELL (4 Tabs):
+
+  TAB 1: HOME
+    - Welcome banner, Quick stats, Top matches
+    - Recent applied, Company picks
+    -> Company List -> Company Detail (About, Open positions, Follow)
+    -> Job Detail
+
+  TAB 2: JOBS
+    - Search bar, Filter chips, Job cards with match score
+    -> Job Detail Screen (Description, Match breakdown, Apply/Auto-Apply)
+
+  TAB 3: APPLICATIONS
+    Dashboard Screen:
+      - Stats Cards (Applied: 45, Review: 12, Offers: 3, Rejected: 8)
+      - Weekly Chart
+      - Application List with filter tabs (All, Queue, Applied, Review, Offer)
+    -> Application Detail Screen:
+       - Status timeline (Queued->Applied->Viewed->Interview->Offer)
+       - Company info, Cover letter, Notes
+
+  TAB 4: PROFILE
+    - Avatar + name, Edit sections, Resume management
+    - Auto-Apply Settings, Notification Preferences
+    - Blacklist management, Logout
+    -> Auto-Apply Settings Screen
+
+
+B.2.3 STATE MANAGEMENT ARCHITECTURE (Provider)
+-------------------------------------------------
+
+  MaterialApp
+    -> MultiProvider
+       +- ChangeNotifierProvider<AuthProvider>
+       +- ChangeNotifierProvider<ProfileProvider>
+       +- ChangeNotifierProvider<CompanyProvider>
+       +- ChangeNotifierProvider<JobProvider>
+       +- ChangeNotifierProvider<ApplicationProvider>
+          -> Router
+             -> Screens (consume via context.watch/read)
+
+  AuthProvider:
+    State: user, token, isLoggedIn
+    Actions: login(), logout(), refreshToken()
+    Depends on: AuthService, SecureStorage
+
+  ProfileProvider:
+    State: profile, isOnboarded, loading, currentStep
+    Actions: loadProfile(), updateProfile(), uploadResume(), parseResume(),
+             nextStep(), prevStep()
+
+  CompanyProvider:
+    State: companies, selected, filters, following, loading
+    Actions: loadCompanies(), searchCompanies(), follow(id), applyFilters()
+
+  JobProvider:
+    State: jobs, matched, filters, selected, loading
+    Actions: loadJobs(), searchJobs(), getMatches(), applyFilters()
+
+  ApplicationProvider:
+    State: applications, queue, stats, chartData, selectedApp, loading
+    Actions: loadApplications(), loadStats(), applyToJob(jobId),
+             autoApply(List<jobId>), cancelQueued(appId), updateNotes()
+
+
+B.2.4 UI COMPONENT HIERARCHY
+-------------------------------
+
+  Shared Widgets (lib/widgets/):
+
+  CompanyCard:
+    +--------+
+    | [Logo] Company Name          ★ 4.5  |
+    |        Technology • Redmond          |
+    |        150 open positions      [>]   |
+    +--------------------------------------+
+
+  JobCard:
+    +--------------------------------------+
+    | Software Engineer        92% Match   |
+    | Microsoft • Remote      $80k-$120k   |
+    | [Python] [Azure] [Flutter]           |
+    | Posted 2 days ago   [Save] [Apply]   |
+    +--------------------------------------+
+
+  MatchScoreIndicator:
+    [================------] 92%
+    Skills: 95%  Exp: 88%  Loc: 100%
+
+  ApplicationStatusBadge:
+    O---O---*---O---O
+    Q   A   V   I   O
+    Queued Applied Viewed Interview Offer
+
+  StatsCard:
+    +----------------------------------+
+    |  45          12         3        |
+    |  Applied    Review    Offers     |
+    |  up 12%    up 5%     up 2       |
+    +----------------------------------+
+
+
+B.2.5 SERVICE LAYER (API Communication)
+-----------------------------------------
+
+  ApiService (Base HTTP Client):
+    - Base URL: https://autoapply-api.azure-api.net
+    - Auth header injection (Bearer token)
+    - Request/Response interceptors
+    - Error handling -> AppException
+    - Retry logic (3 attempts, exponential backoff)
+    - Offline queue (Hive local storage)
+         |
+    +----+--------+---------------+
+    v              v               v
+  ProfileService  CompanyService  ApplicationService
+    get()          list()          list()
+    update()       search()        apply(jobId)
+    uploadResume() getById()       autoApply(ids)
+                   follow()        getQueue()
+                                   cancelQueued()
+  AuthService     JobService       getStats()
+    login()        list()
+    logout()       search()       StorageService
+    refreshToken() getById()        uploadBlob()
+                   getMatches()     downloadBlob()
+                                    getSasUrl()
+
+
+B.2.6 THEMING & DESIGN SYSTEM
+--------------------------------
+
+  Colors:
+    Primary:      #2563EB  (Blue 600)     <- Buttons, links, active states
+    Secondary:    #7C3AED  (Violet 600)   <- Accents, match scores
+    Success:      #16A34A  (Green 600)    <- Applied, Offer statuses
+    Warning:      #F59E0B  (Amber 500)    <- Queued, In Review
+    Error:        #DC2626  (Red 600)      <- Failed, Rejected
+    Background:   #F8FAFC  (Slate 50)     <- Page backgrounds
+    Surface:      #FFFFFF                  <- Cards, modals
+    Text Primary: #0F172A  (Slate 900)
+    Text Second:  #64748B  (Slate 500)
+
+  Typography (Google Fonts: Inter):
+    H1:  28sp Bold      <- Screen titles
+    H2:  22sp SemiBold  <- Section headers
+    H3:  18sp SemiBold  <- Card titles
+    Body: 16sp Regular  <- Content text
+    Caption: 14sp Regular <- Metadata
+
+  Spacing: 4, 8, 12, 16, 24, 32, 48 dp
+  Border Radius: 8dp (cards), 12dp (buttons), 24dp (chips)
+  Elevation: 0 (flat), 2 (cards), 8 (modals), 16 (bottom sheet)
+
+  Responsive Breakpoints (Web):
+    Mobile:  < 600dp    (1 column)
+    Tablet:  600-1024dp (2 columns)
+    Desktop: > 1024dp   (3 columns, side nav replaces bottom nav)
+
+
+B.2.7 OFFLINE & ERROR HANDLING STRATEGY
+------------------------------------------
+
+  Online Mode:
+    - Normal API calls
+
+  Offline Mode:
+    - Show cached data from Hive local DB
+    - Queue write operations locally
+    - Show offline banner
+    - Sync on reconnect
+
+  Error Type -> UI Handling:
+    401 Unauthorized   -> Redirect to login
+    429 Rate Limited   -> Show "try again" toast
+    500 Server Error   -> Retry + error screen
+    Network Error      -> Offline mode
+    Validation Error   -> Inline field errors
+
+
+================================================================================
+PART C: LOW-LEVEL DESIGN (LLD)
+================================================================================
+
+C.1 COSMOS DB DATA MODELS (Full Schemas)
+------------------------------------------
+
+--- UserProfile ---
+{
+  "id": "user-uuid",
+  "type": "profile",
+  "email": "user@email.com",
+  "personal": {
+    "firstName": "string",
+    "lastName": "string",
+    "phone": "string",
+    "dateOfBirth": "1990-01-15",
+    "currentLocation": {
+      "city": "string",
+      "state": "string",
+      "country": "string"
+    },
+    "willingToRelocate": true,
+    "linkedinUrl": "https://linkedin.com/in/...",
+    "githubUrl": "https://github.com/...",
+    "portfolioUrl": "https://..."
+  },
+  "education": [
+    {
+      "id": "edu-uuid",
+      "degree": "MSc Computer Science",
+      "university": "Stanford University",
+      "graduationYear": 2024,
+      "gpa": 3.8,
+      "fieldOfStudy": "Computer Science"
+    }
+  ],
+  "certifications": [
+    {
+      "id": "cert-uuid",
+      "name": "Azure Solutions Architect",
+      "issuer": "Microsoft",
+      "dateObtained": "2025-06-01",
+      "expiryDate": "2028-06-01",
+      "credentialUrl": "https://..."
+    }
+  ],
+  "experience": [
+    {
+      "id": "exp-uuid",
+      "title": "Senior Software Engineer",
+      "company": "Microsoft",
+      "from": "2022-01-01",
+      "to": "2025-12-31",
+      "isCurrent": false,
+      "description": "Led backend team...",
+      "skills": ["Python", "Azure", "Cosmos DB"]
+    }
+  ],
+  "skills": {
+    "technical": ["Python", "Flutter", "Azure", "Docker", "Kubernetes"],
+    "soft": ["Leadership", "Communication", "Problem Solving"],
+    "languages": [
+      { "language": "English", "proficiency": "native" },
+      { "language": "Spanish", "proficiency": "intermediate" }
+    ]
+  },
+  "preferences": {
+    "roles": ["Software Engineer", "Backend Developer", "Full Stack"],
+    "locations": ["Seattle", "San Francisco", "Remote"],
+    "salary": {
+      "min": 120000,
+      "max": 180000,
+      "currency": "USD",
+      "period": "annual"
+    },
+    "jobType": ["full-time", "contract"],
+    "workMode": ["remote", "hybrid"],
+    "noticePeriod": "2 weeks",
+    "startDate": "2026-05-01"
+  },
+  "documents": {
+    "resumeUrl": "https://blob.../resumes/user-uuid/resume_v2.pdf",
+    "resumeVersion": 2,
+    "coverLetterTemplateUrl": "https://blob.../cover-letters/user-uuid/template.docx",
+    "parsedResumeData": {
+      "extractedSkills": [...],
+      "extractedExperience": [...],
+      "parsedAt": "2026-04-03T10:00:00Z"
+    }
+  },
+  "autoApplySettings": {
+    "enabled": false,
+    "maxPerDay": 10,
+    "blacklistedCompanies": ["company-uuid-1"],
+    "preferredApplyTimes": ["09:00-12:00"],
+    "autoGenerateCoverLetter": true,
+    "reviewBeforeSend": true
+  },
+  "onboarding": {
+    "isComplete": true,
+    "completedAt": "2026-04-03T10:00:00Z",
+    "currentStep": 6,
+    "stepsCompleted": [1, 2, 3, 4, 5, 6]
+  },
+  "profileEmbedding": [0.1, 0.2, ...],  // 1536-dim vector
+  "createdAt": "2026-04-03T00:00:00Z",
+  "updatedAt": "2026-04-03T00:00:00Z"
+}
+
+--- Company ---
+{
+  "id": "company-uuid",
+  "type": "company",
+  "name": "Microsoft",
+  "description": "Microsoft Corporation is a technology company...",
+  "industry": "Technology",
+  "subIndustry": "Cloud Computing",
+  "size": "10000+",
+  "sizeCategory": "enterprise",
+  "headquarters": {
+    "city": "Redmond",
+    "state": "WA",
+    "country": "USA"
+  },
+  "offices": [
+    { "city": "Seattle", "state": "WA", "country": "USA" },
+    { "city": "San Francisco", "state": "CA", "country": "USA" }
+  ],
+  "founded": 1975,
+  "website": "https://microsoft.com",
+  "careersPage": "https://careers.microsoft.com",
+  "rating": 4.5,
+  "reviewCount": 15000,
+  "openPositions": 150,
+  "logoUrl": "https://blob.../company-logos/company-uuid/logo.png",
+  "applyMethods": {
+    "api": { "endpoint": "https://careers-api.example.com/apply", "format": "json" },
+    "email": { "address": "careers@example.com", "format": "resume+cover" },
+    "browser": { "url": "https://careers.example.com/apply/{jobId}", "automatable": true }
+  },
+  "socialMedia": {
+    "linkedin": "https://linkedin.com/company/example",
+    "twitter": "https://twitter.com/Microsoft"
+  },
+  "tags": ["FAANG", "Big Tech", "Remote Friendly"],
+  "lastScrapedAt": "2026-04-03T06:00:00Z",
+  "createdAt": "2026-01-01T00:00:00Z"
+}
+
+--- Job ---
+{
+  "id": "job-uuid",
+  "type": "job",
+  "companyId": "company-uuid",
+  "companyName": "Microsoft",
+  "title": "Senior Software Engineer",
+  "description": "We are looking for a Senior Software Engineer to join...",
+  "descriptionHtml": "<p>We are looking for...</p>",
+  "requirements": {
+    "mustHave": ["3+ years Python", "Cloud experience"],
+    "niceToHave": ["Azure certification", "Leadership experience"],
+    "education": "Bachelor's in CS or equivalent",
+    "experienceYears": { "min": 3, "max": 7 }
+  },
+  "responsibilities": [
+    "Design and implement backend services",
+    "Mentor junior developers"
+  ],
+  "location": {
+    "city": "Seattle",
+    "state": "WA",
+    "country": "USA",
+    "remote": true,
+    "hybrid": true
+  },
+  "salary": {
+    "min": 150000,
+    "max": 200000,
+    "currency": "USD",
+    "period": "annual",
+    "disclosed": true
+  },
+  "benefits": ["Health Insurance", "401k Match", "Stock Options"],
+  "jobType": "full-time",
+  "seniorityLevel": "senior",
+  "department": "Engineering",
+  "portalUrl": "https://careers.microsoft.com/jobs/12345",
+  "portalSource": "linkedin",
+  "applyMethod": "api",
+  "embedding": [0.1, 0.2, ...],  // 1536-dim vector
+  "skills": ["Python", "Azure", "Kubernetes", "SQL"],
+  "postedAt": "2026-04-01T00:00:00Z",
+  "expiresAt": "2026-05-01T00:00:00Z",
+  "isActive": true,
+  "applicantCount": 45,
+  "lastScrapedAt": "2026-04-03T06:00:00Z",
+  "createdAt": "2026-04-01T00:00:00Z"
+}
+
+--- Application ---
+{
+  "id": "app-uuid",
+  "type": "application",
+  "userId": "user-uuid",
+  "jobId": "job-uuid",
+  "companyId": "company-uuid",
+  "companyName": "Microsoft",
+  "jobTitle": "Senior Software Engineer",
+  "status": "applied",
+  "applyMethod": "api",
+  "isAutoApplied": true,
+  "coverLetter": {
+    "url": "https://blob.../cover-letters/user-uuid/job-uuid.pdf",
+    "generatedByAI": true,
+    "generatedAt": "2026-04-03T09:00:00Z",
+    "prompt": "Generated for Senior SWE role at Microsoft"
+  },
+  "resumeVersionUsed": 2,
+  "resumeUrl": "https://blob.../resumes/user-uuid/resume_v2.pdf",
+  "statusHistory": [
+    { "status": "queued", "at": "2026-04-03T08:00:00Z", "note": "Added to queue" },
+    { "status": "processing", "at": "2026-04-03T09:00:00Z", "note": "Generating cover letter" },
+    { "status": "applied", "at": "2026-04-03T09:05:00Z", "note": "Successfully submitted via API" }
+  ],
+  "autoApplyLog": {
+    "queuedAt": "2026-04-03T08:00:00Z",
+    "processedAt": "2026-04-03T09:00:00Z",
+    "completedAt": "2026-04-03T09:05:00Z",
+    "attempts": 1,
+    "lastError": null
+  },
+  "matchScore": {
+    "overall": 92,
+    "skills": 95,
+    "experience": 88,
+    "location": 100,
+    "salary": 85
+  },
+  "notes": "Referred by John from engineering team",
+  "interviewSchedule": null,
+  "createdAt": "2026-04-03T08:00:00Z",
+  "updatedAt": "2026-04-03T09:05:00Z"
+}
+
+
+C.2 AZURE FUNCTIONS API — DETAILED ENDPOINT SPECS
+----------------------------------------------------
+
+--- POST /api/v1/profile ---
+Description: Create user profile during onboarding
+Auth: Required (Bearer token)
+Request Body:
+  {
+    "personal": { ... },       // See UserProfile.personal schema
+    "education": [ ... ],      // Array of education entries
+    "certifications": [ ... ]  // Array of certifications
+  }
+Response 201:
+  { "id": "user-uuid", "message": "Profile created", "profile": { ... } }
+Errors:
+  400 - Validation errors (missing required fields)
+  409 - Profile already exists
+Logic:
+  1. Extract userId from JWT 'sub' claim (validated by auth middleware)
+  2. Validate all required fields
+  3. Generate profile embedding (Azure OpenAI)
+  4. Write to Cosmos DB (profiles container)
+  5. Return created profile
+
+--- PUT /api/v1/profile ---
+Description: Update user profile
+Auth: Required
+Request Body: Partial update (only changed fields)
+Response 200: Updated profile
+Logic:
+  1. Read existing profile from Cosmos
+  2. Merge with updates
+  3. Re-generate embedding if skills/experience changed
+  4. Update Cosmos DB
+  5. Invalidate Redis cache
+
+--- POST /api/v1/profile/resume ---
+Description: Upload resume file
+Auth: Required
+Content-Type: multipart/form-data
+Request: file (PDF, max 10MB)
+Response 200:
+  { "resumeUrl": "https://...", "version": 3 }
+Logic:
+  1. Validate file type (PDF only) and size (<= 10MB)
+  2. Generate SAS token for Blob upload
+  3. Upload to: resumes/{userId}/resume_v{version}.pdf
+  4. Update profile.documents.resumeUrl
+  5. Return URL
+
+--- POST /api/v1/profile/resume/parse ---
+Description: AI-parse uploaded resume to extract structured data
+Auth: Required
+Request Body: { "resumeUrl": "https://..." }
+Response 200:
+  {
+    "extractedSkills": ["Python", "Azure", ...],
+    "extractedExperience": [{ "title": "...", "company": "...", ... }],
+    "extractedEducation": [{ "degree": "...", "university": "...", ... }],
+    "extractedCertifications": [...]
+  }
+Logic:
+  1. Download resume from Blob
+  2. Send to Azure Document Intelligence for OCR/parsing
+  3. Send extracted text to Azure OpenAI for structured extraction
+  4. Return structured data (user confirms before saving)
+
+--- GET /api/v1/jobs/match ---
+Description: Get AI-matched jobs for user
+Auth: Required
+Query Params: limit (default 20), offset, minScore (default 60)
+Response 200:
+  {
+    "jobs": [
+      {
+        "job": { ... },
+        "matchScore": {
+          "overall": 92,
+          "skills": 95,
+          "experience": 88,
+          "location": 100,
+          "salary": 85
+        }
+      }
+    ],
+    "total": 150,
+    "hasMore": true
+  }
+Logic:
+  1. Get user profile embedding from Cosmos
+  2. Query Cosmos DB with VectorDistance() vector search (profile embedding)
+  3. Apply filters (user preferences: location, salary, jobType)
+  4. Calculate detailed match breakdown per job
+  5. Sort by overall match score
+  6. Return results (Redis cache added in Phase 7)
+
+--- POST /api/v1/auto-apply ---
+Description: Queue jobs for auto-application
+Auth: Required
+Request Body:
+  {
+    "jobIds": ["job-uuid-1", "job-uuid-2"],
+    "generateCoverLetter": true,
+    "customMessage": "optional custom intro"
+  }
+Response 202:
+  {
+    "queued": 2,
+    "applications": [
+      { "id": "app-uuid-1", "jobId": "job-uuid-1", "status": "queued" },
+      { "id": "app-uuid-2", "jobId": "job-uuid-2", "status": "queued" }
+    ]
+  }
+Errors:
+  400 - Daily limit exceeded
+  400 - Profile incomplete
+  409 - Already applied to job
+Logic:
+  1. Validate: max 20 jobIds per request
+  2. Check daily apply limit (Cosmos DB counter doc per userId+date;
+     Redis INCR in Phase 7+)
+  3. Check profile completeness
+  4. Check for duplicate applications
+  5. Check blacklisted companies
+  6. Create Application records in Cosmos (status: queued)
+  7. Send messages to Storage Queue (Phase 5-6) / Service Bus (Phase 7+)
+  8. Increment daily counter
+  9. Return queued application IDs
+
+
+C.3 FLUTTER APP — DETAILED FILE STRUCTURE
+--------------------------------------------
+
+lib/
++-- main.dart                        # App entry, Azure SDK init
++-- app.dart                         # MaterialApp + MultiProvider setup
++-- config/
+|   +-- routes.dart                  # GoRouter route definitions
+|   +-- theme.dart                   # AppTheme class (colors, typography)
+|   +-- azure_config.dart            # B2C tenant, API URLs, client IDs
+|   +-- constants.dart               # App-wide constants
++-- models/
+|   +-- user_profile.dart            # UserProfile, Personal, Education, etc.
+|   +-- company.dart                 # Company model + fromJson/toJson
+|   +-- job.dart                     # Job model + MatchScore
+|   +-- application.dart             # Application model + StatusHistory
+|   +-- dashboard_stats.dart         # Stats model for dashboard
+|   +-- filters.dart                 # Filter models (JobFilter, CompanyFilter)
++-- services/
+|   +-- api_service.dart             # Base HTTP client (Dio) + interceptors
+|   +-- auth_service.dart            # Azure AD B2C MSAL integration
+|   +-- profile_service.dart         # Profile CRUD operations
+|   +-- company_service.dart         # Company list, search, follow
+|   +-- job_service.dart             # Job list, search, match
+|   +-- application_service.dart     # Apply, auto-apply, queue, stats
+|   +-- storage_service.dart         # Blob upload/download via SAS
+|   +-- notification_service.dart    # Push notification registration
+|   +-- local_storage_service.dart   # Hive DB for offline cache
++-- providers/
+|   +-- auth_provider.dart           # Auth state + token management
+|   +-- profile_provider.dart        # Profile state + onboarding steps
+|   +-- company_provider.dart        # Company list + search state
+|   +-- job_provider.dart            # Job feed + matching state
+|   +-- application_provider.dart    # Applications + queue + dashboard
++-- screens/
+|   +-- splash_screen.dart           # Loading screen, check auth state
+|   +-- auth/
+|   |   +-- login_screen.dart        # Login UI with B2C buttons
+|   |   +-- register_screen.dart     # Registration form
+|   +-- onboarding/
+|   |   +-- onboarding_stepper.dart  # Main stepper wrapper
+|   |   +-- personal_info_screen.dart
+|   |   +-- education_screen.dart
+|   |   +-- experience_screen.dart
+|   |   +-- skills_screen.dart
+|   |   +-- documents_screen.dart
+|   |   +-- review_screen.dart
+|   +-- home/
+|   |   +-- home_screen.dart         # Dashboard home tab
+|   +-- companies/
+|   |   +-- company_list_screen.dart
+|   |   +-- company_detail_screen.dart
+|   +-- jobs/
+|   |   +-- job_feed_screen.dart
+|   |   +-- job_detail_screen.dart
+|   +-- applications/
+|   |   +-- dashboard_screen.dart    # Stats + charts
+|   |   +-- application_list_screen.dart
+|   |   +-- application_detail_screen.dart
+|   +-- settings/
+|   |   +-- settings_screen.dart
+|   |   +-- auto_apply_settings_screen.dart
+|   +-- main_shell.dart              # Bottom navigation shell
++-- widgets/
+|   +-- company_card.dart
+|   +-- job_card.dart
+|   +-- application_status_badge.dart
+|   +-- match_score_indicator.dart
+|   +-- stats_card.dart
+|   +-- filter_chip_bar.dart
+|   +-- loading_shimmer.dart
+|   +-- error_widget.dart
+|   +-- offline_banner.dart
+|   +-- stepper_progress.dart
++-- utils/
+|   +-- validators.dart              # Form validation functions
+|   +-- date_utils.dart              # Date formatting helpers
+|   +-- string_utils.dart            # Text truncation, capitalization
+|   +-- responsive.dart              # Responsive breakpoint helpers
+
+
+C.4 AZURE FUNCTIONS — DETAILED FILE STRUCTURE
+------------------------------------------------
+
+api/
++-- function_app.py                  # Main Azure Functions app (v2 model)
++-- requirements.txt                 # Python dependencies
++-- host.json                        # Functions host configuration
++-- local.settings.json              # Local dev settings (gitignored)
++-- shared/
+|   +-- __init__.py
+|   +-- auth_middleware.py           # JWT validation, user extraction
+|   +-- cosmos_client.py             # Cosmos DB connection + helpers
+|   +-- blob_client.py              # Blob Storage operations
+|   +-- redis_client.py             # Redis cache operations (Phase 7)
+|   +-- queue_client.py             # Storage Queue operations (Phase 5)
+|   +-- service_bus_client.py       # Service Bus operations (Phase 7, replaces queue_client)
+|   +-- openai_client.py            # Azure OpenAI operations (Phase 4)
+|   +-- models.py                   # Pydantic models for validation
+|   +-- exceptions.py               # Custom exception classes
+|   +-- response_helpers.py         # Standard HTTP response builders
++-- functions/
+|   +-- auth/
+|   |   +-- validate_token.py       # POST /api/v1/auth/validate
+|   +-- profile/
+|   |   +-- get_profile.py          # GET /api/v1/profile
+|   |   +-- create_profile.py       # POST /api/v1/profile
+|   |   +-- update_profile.py       # PUT /api/v1/profile
+|   |   +-- upload_resume.py        # POST /api/v1/profile/resume
+|   |   +-- parse_resume.py         # POST /api/v1/profile/resume/parse
+|   +-- companies/
+|   |   +-- list_companies.py       # GET /api/v1/companies
+|   |   +-- get_company.py          # GET /api/v1/companies/{id}
+|   |   +-- search_companies.py     # POST /api/v1/companies/search
+|   |   +-- follow_company.py       # POST /api/v1/companies/{id}/follow
+|   +-- jobs/
+|   |   +-- list_jobs.py            # GET /api/v1/jobs
+|   |   +-- get_job.py              # GET /api/v1/jobs/{id}
+|   |   +-- search_jobs.py          # POST /api/v1/jobs/search
+|   |   +-- match_jobs.py           # GET /api/v1/jobs/match
+|   +-- applications/
+|   |   +-- create_application.py   # POST /api/v1/applications
+|   |   +-- list_applications.py    # GET /api/v1/applications
+|   |   +-- get_application.py      # GET /api/v1/applications/{id}
+|   |   +-- update_status.py        # PUT /api/v1/applications/{id}/status
+|   +-- auto_apply/
+|   |   +-- queue_application.py    # POST /api/v1/auto-apply
+|   |   +-- get_queue.py            # GET /api/v1/auto-apply/queue
+|   |   +-- cancel_queued.py        # DELETE /api/v1/auto-apply/queue/{id}
+|   |   +-- process_application.py  # Service Bus triggered processor
+|   |   +-- generate_cover_letter.py# Called by processor
+|   |   +-- update_settings.py      # PUT /api/v1/auto-apply/settings
+|   +-- dashboard/
+|   |   +-- get_stats.py            # GET /api/v1/dashboard/stats
+|   |   +-- get_timeline.py         # GET /api/v1/dashboard/timeline
+|   +-- scrapers/
+|   |   +-- scrape_linkedin.py      # Timer triggered (every 6h)
+|   |   +-- scrape_indeed.py        # Timer triggered (every 6h)
+|   |   +-- scrape_glassdoor.py     # Timer triggered (every 6h)
+|   |   +-- normalize_jobs.py       # Shared normalization logic
++-- tests/
+|   +-- test_profile.py
+|   +-- test_jobs.py
+|   +-- test_applications.py
+|   +-- test_auto_apply.py
+|   +-- conftest.py                  # Test fixtures
+
+
+C.5 AUTO-APPLY QUEUE PROCESSING — DETAILED ALGORITHM
+-------------------------------------------------------
+
+Function: process_application (Queue Triggered)
+Trigger: Azure Storage Queue "auto-apply-queue" (Phase 5-6)
+         Azure Service Bus Queue "auto-apply-queue" (Phase 7+)
+
+Algorithm:
+
+  1. RECEIVE message from Service Bus queue
+     Input: { userId, jobId, companyId, applicationId, applyMethod, priority }
+
+  2. UPDATE application status in Cosmos DB
+     status: "queued" -> "processing"
+     Add statusHistory entry
+
+  3. LOAD user profile from Cosmos DB
+     Get: personal info, skills, experience, resume URL
+
+  4. LOAD job details from Cosmos DB
+     Get: title, description, requirements, company info
+
+  5. CHECK if auto-generate cover letter is enabled
+     IF enabled:
+       a. Call generate_cover_letter(userProfile, jobDetails)
+       b. Upload generated PDF to Blob: cover-letters/{userId}/{jobId}.pdf
+       c. Get cover letter URL
+     ELSE:
+       a. Use user's default cover letter template
+       b. OR skip cover letter
+
+  6. DETERMINE apply method based on job.applyMethod:
+
+     CASE "api":
+       a. Load company API configuration
+       b. Build request payload (map profile fields to API format)
+       c. POST to company API endpoint
+       d. Parse response for confirmation
+
+     CASE "email":
+       a. Build email body (cover letter + intro)
+       b. Attach resume PDF
+       c. Send via Azure Communication Services
+       d. Log email message ID
+
+     CASE "browser":
+       a. Spin up Azure Container Instance with Playwright
+       b. Navigate to application URL
+       c. Fill form fields using profile data mapping:
+          - Name fields <- personal.firstName, personal.lastName
+          - Email <- email
+          - Phone <- personal.phone
+          - LinkedIn <- personal.linkedinUrl
+          - Resume upload <- download & re-upload
+          - Cover letter text <- generated or template
+          - Custom questions <- AI-generated answers
+       d. Submit form
+       e. Capture screenshot for verification
+       f. Tear down container
+
+  0. IDEMPOTENCY GUARD (before step 1):
+     Check application status in Cosmos — if already "applied" or "failed",
+     skip processing (prevents duplicate applications on Queue redelivery)
+
+  7. HANDLE result:
+     IF success:
+       a. Update Cosmos: status = "applied", appliedAt = now
+       b. Send push notification: "Applied to {jobTitle} at {companyName}"
+          (basic log in Phase 5-6; push notification in Phase 7)
+       c. Increment daily counter (Cosmos doc Phase 5-6; Redis Phase 7+)
+     IF failure:
+       a. Log error details
+       b. IF attempts < 3:
+          - Phase 5-6: Re-enqueue to Storage Queue with visibility
+            timeout (backoff: 5min, 15min, 60min)
+          - Phase 7+: Requeue to Service Bus with scheduled delivery
+          - Update Cosmos: attempt count
+       c. IF attempts >= 3:
+          - Update Cosmos: status = "failed", lastError = errorMessage
+          - Phase 5-6: Failed status tracked in Cosmos autoApplyLog
+            (no DLQ — Storage Queues don't support it)
+          - Phase 7+: Message moves to Service Bus dead-letter queue
+          - Send notification: "Failed to apply to {jobTitle}"
+       d. Log to Application Insights
+
+
+C.6 AI MATCHING — DETAILED ALGORITHM
+---------------------------------------
+
+Function: match_jobs(userId)
+
+Algorithm:
+
+  1. LOAD user profile from Cosmos DB
+     Required: skills, experience, preferences, profileEmbedding
+
+  2. CHECK Redis cache
+     Key: user:matchcache:{userId}:{hash(preferences)}
+     IF cache hit AND age < 30 min: return cached results
+
+  3. GENERATE profile embedding (if not exists or stale)
+     Input text: concatenate(skills, latest_job_title, experience_summary, preferences)
+     Model: Azure OpenAI text-embedding-3-large (1536 dimensions)
+     Store embedding in Cosmos for reuse
+
+  4. VECTOR SEARCH via Cosmos DB (integrated DiskANN vector search)
+     Container: jobs
+     Query: VectorDistance(embedding, profileEmbedding, 'cosine'), TOP 100
+     Filters:
+       - isActive = true
+       - expiresAt > now
+       - location IN user.preferences.locations OR remote = true
+       - jobType IN user.preferences.jobType
+
+  5. CALCULATE detailed match scores for top 100 results:
+
+     For each job:
+       a. skills_score = |intersection(user.skills, job.skills)| / |job.skills| * 100
+       b. experience_score = calculate_exp_match(user.experience, job.requirements)
+          - Years match: user_years >= job.min_years ? 100 : (user_years/min_years)*100
+          - Relevant title match: fuzzy_match(user.titles, job.title) * weight
+       c. location_score:
+          - Exact city match: 100
+          - Same state: 80
+          - Remote and user wants remote: 100
+          - Different location but willing to relocate: 60
+          - No match: 0
+       d. salary_score:
+          - Job range overlaps user range: 100
+          - Partial overlap: proportional
+          - No overlap: 0 (exclude from results if > 30% gap)
+       e. overall_score = (skills_score * 0.35) + (experience_score * 0.30)
+                        + (location_score * 0.20) + (salary_score * 0.15)
+
+     BOOST factors:
+       - Job from followed company: +5 points
+       - Job from preferred company: +3 points
+       - Recently posted (< 3 days): +2 points
+
+  6. SORT by overall_score descending
+
+  7. CACHE result in Redis (30 min TTL)
+
+  8. RETURN top N results with full match breakdown
+
+
+C.7 RESUME PARSER — DETAILED FLOW
+------------------------------------
+
+Function: parse_resume(userId, resumeUrl)
+
+Flow:
+
+  1. DOWNLOAD resume PDF from Azure Blob Storage
+
+  2. EXTRACT text using Azure Document Intelligence
+     Model: prebuilt-document
+     Extract: text, tables, key-value pairs, sections
+
+  3. STRUCTURE extraction with Azure OpenAI (GPT-4o)
+     System Prompt:
+       "You are a resume parser. Extract the following structured data from
+        the resume text. Return JSON only."
+
+     User Prompt:
+       "Extract from this resume:
+        1. skills: Array of technical and soft skills
+        2. experience: Array of {title, company, from, to, description}
+        3. education: Array of {degree, university, year, gpa}
+        4. certifications: Array of {name, issuer, date}
+        5. personal: {name, email, phone, linkedin, github}
+
+        Resume text:
+        {extracted_text}"
+
+     Response format: Strict JSON
+
+  4. VALIDATE extracted data
+     - Check required fields are present
+     - Normalize dates to ISO format
+     - Deduplicate skills
+     - Confidence scoring per field
+
+  5. RETURN structured data to client for user confirmation
+     User reviews and corrects before saving to profile
+
+
+C.8 COVER LETTER GENERATOR — DETAILED PROMPT DESIGN
+------------------------------------------------------
+
+Function: generate_cover_letter(userProfile, jobDetails)
+
+Model: Azure OpenAI GPT-4o
+
+System Prompt:
+  "You are an expert career coach and professional cover letter writer.
+   Write a concise, compelling cover letter (250-350 words) that:
+   - Opens with a strong hook mentioning the specific role and company
+   - Highlights 2-3 most relevant skills/experiences from the candidate
+   - Shows knowledge of the company and explains cultural fit
+   - Ends with a confident call to action
+   - Uses professional but warm tone
+   - Does NOT use generic phrases like 'I am writing to apply'
+   - Does NOT exaggerate or lie about qualifications
+   Return the cover letter text only, no preamble."
+
+User Prompt:
+  "Write a cover letter for this application:
+
+   CANDIDATE:
+   Name: {personal.firstName} {personal.lastName}
+   Current Role: {experience[0].title} at {experience[0].company}
+   Years of Experience: {calculated_total_years}
+   Key Skills: {top_5_matching_skills}
+   Education: {education[0].degree} from {education[0].university}
+
+   TARGET JOB:
+   Title: {job.title}
+   Company: {job.companyName}
+   Description: {job.description (first 500 chars)}
+   Requirements: {job.requirements.mustHave}
+
+   MATCH HIGHLIGHTS:
+   - Skills match: {matchScore.skills}%
+   - Experience match: {matchScore.experience}%
+
+   {user.customMessage if provided}"
+
+Post-processing:
+  1. Convert text to PDF (reportlab library)
+  2. Upload to Blob: cover-letters/{userId}/{jobId}.pdf
+  3. Return URL
+
+
+C.9 ERROR HANDLING & RETRY STRATEGIES
+----------------------------------------
+
+API Layer (Azure Functions):
+  - All endpoints wrapped in try-except
+  - Custom AppException hierarchy:
+    - ValidationError (400)
+    - AuthenticationError (401)
+    - AuthorizationError (403)
+    - NotFoundError (404)
+    - ConflictError (409)
+    - RateLimitError (429)
+    - InternalError (500)
+  - Structured error response format:
+    { "error": { "code": "VALIDATION_ERROR", "message": "...", "details": [...] } }
+
+Retry Strategy:
+  - Cosmos DB: SDK built-in retry (429s)
+  - Blob Storage: 3 retries, exponential backoff
+  - Azure OpenAI: 3 retries, 429 rate limit with backoff (2s, 4s, 8s)
+  - Service Bus: Message lock renewal, dead-letter after 5 failures
+  - Browser automation: 3 attempts per application
+
+Circuit Breaker (per external service):
+  - Track failure count per service in Redis
+  - If > 10 failures in 5 minutes: OPEN circuit
+  - Wait 60 seconds, then HALF-OPEN (allow 1 request)
+  - If success: CLOSE circuit; if failure: OPEN again
+
+
+C.10 CACHING STRATEGY (Redis)
+-------------------------------
+
+Cache Tiers:
+  L1 - In-memory (Flutter): Hive/SharedPreferences (user profile, settings)
+  L2 - Redis (Azure): Frequently accessed data
+  L3 - Cosmos DB: Source of truth
+
+Redis Patterns:
+  Read-through cache:
+    1. Check Redis for key
+    2. If miss: query Cosmos DB, store in Redis with TTL
+    3. Return data
+
+  Write-through invalidation:
+    1. Write to Cosmos DB
+    2. Delete related Redis keys
+    3. Next read populates cache
+
+  Key        | Pattern              | TTL     | Purpose
+  -----------|----------------------|---------|---------------------------
+  company:*  | Read-through         | 5-15min | Company lists/details
+  jobs:trend | Read-through         | 10min   | Trending jobs
+  user:match | Read-through         | 30min   | Match results (per user)
+  user:limit | Increment + expire   | 24h     | Daily apply limit counter
+  session:*  | Set + expire         | 1h      | Active session data
+
+
+C.11 INFRASTRUCTURE AS CODE (Bicep Outline)
+----------------------------------------------
+
+Resources to provision (cost-optimized tiers shown):
+
+  Resource Group: <resource-prefix>-{env}
+
+  1. Azure AD B2C Tenant
+     - User flows: sign-up, sign-in, password-reset
+     - Identity providers: Google, LinkedIn
+     - Tier: Free (first 50K authentications/month)
+
+  2. Azure Cosmos DB Account
+     - API: SQL (Core)
+     - Tier: FREE TIER (1000 RU/s, 25 GB shared across containers)
+     - Consistency: Session
+     - Regions: Single region (dev); add read replica at scale
+     - Containers: profiles, companies, jobs, applications
+     - Vector index policy on jobs container (DiskANN, cosine, 1536 dims)
+
+  3. Azure Functions App
+     - Runtime: Python 3.11
+     - Plan: Consumption (scale to 0, 1M executions/month free)
+     - App Settings: Cosmos connection (Key Vault refs), OpenAI key, etc.
+     - Slots: staging + production
+     - CORS: Configured on Functions host (no APIM until Phase 8)
+     - Auth: JWT validation in middleware (python-jose)
+
+  4. Azure API Management (Phase 8 only)
+     - Tier: Consumption (~$3.50 per million API calls)
+     - Policies: JWT validation, rate limiting, CORS, versioning
+     - Response caching (5 min TTL)
+
+  5. Azure Blob Storage Account
+     - Tier: LRS (locally redundant), Hot access tier
+     - Containers: resumes, cover-letters, company-logos
+     - Access: Private (SAS token based)
+     - Lifecycle: Move to cool tier after 90 days
+     - Also hosts: Storage Queues (Phase 5-6)
+
+  6. Azure OpenAI (Phase 4+)
+     - Model deployments: gpt-4o, text-embedding-3-large
+     - TPM limits: 60K tokens/min
+     - Pay-per-token: ~$5/1M input, ~$15/1M output
+
+  7. Azure Document Intelligence (Phase 4+)
+     - Tier: Pay-as-you-go (~$1.50/1000 pages)
+     - Model: prebuilt-document (resume OCR)
+
+  8. Azure Service Bus (Phase 7+ only)
+     - Tier: Standard (~$10/month)
+     - Queue: auto-apply-queue (with dead-letter)
+     - TTL: 24 hours
+
+  9. Azure Redis Cache (Phase 7+ only)
+     - Tier: Basic C0 (~$16/month)
+     - Eviction: allkeys-lru
+
+  10. Azure Notification Hubs (Phase 7+)
+      - Tier: Free (1M pushes/month)
+      - Platforms: FCM (Android), Web Push
+
+  11. Azure Communication Services (Phase 5+)
+      - Email domain configured
+      - Pay-per-email: ~$0.25/1000 emails
+
+  12. Azure Container Instances (Phase 5+, on-demand)
+      - Image: custom Playwright image
+      - CPU: 1 core, Memory: 2GB
+      - Cost: ~$0.05/hour (~$0.002 per application at ~2 min)
+      - Lifecycle: Create per job, destroy after completion
+
+  13. Application Insights
+      - Tier: Free (5 GB/month included)
+      - Connected to Functions
+      - Log Analytics workspace
+
+  14. Azure Static Web Apps (Flutter web hosting)
+      - Tier: Free
+
+  NOT provisioned (cost savings):
+    - Azure AI Search: Replaced by Cosmos DB vector search (saves ~$75/month)
+    - APIM in Phases 2-7: Functions direct HTTPS (saves ~$49/month)
+    - Service Bus in Phases 5-6: Storage Queues used (saves ~$10/month)
+    - Redis in Phases 1-6: Direct Cosmos DB queries (saves ~$16/month)
+
+
+C.12 CI/CD PIPELINE DESIGN
+-----------------------------
+
+Flutter App Pipeline (Azure DevOps Pipelines):
+  Trigger: Push to main, PR to main
+
+  Jobs:
+  1. analyze:
+     - flutter analyze (lint)
+     - flutter test (unit tests)
+
+  2. build-android:
+     - flutter build apk --release
+     - Upload to Azure Artifacts
+     - (Optional) Deploy to Azure App Center for beta distribution
+
+  3. build-web:
+     - flutter build web --release
+     - Deploy to Azure Static Web Apps
+
+Azure Functions Pipeline (Azure DevOps Pipelines):
+  Trigger: Push to main (api/ path), PR to main
+
+  Jobs:
+  1. test:
+     - pip install -r requirements.txt
+     - pytest tests/
+
+  2. deploy-staging:
+     - Deploy to Functions staging slot
+     - Run integration tests against staging
+
+  3. deploy-production:
+     - Swap staging -> production slot
+     - Smoke test production endpoints
+
+Infrastructure Pipeline:
+  Trigger: Push to main (infra/ path)
+
+  Jobs:
+  1. validate:
+     - az bicep build (compile check)
+     - what-if deployment (dry run)
+
+  2. deploy:
+     - az deployment group create
+     - Verify resource health
+
+
+================================================================================
+PHASED IMPLEMENTATION PLAN
+================================================================================
+
+Overview: The project is divided into 8 phases, cost-optimized for a
+$100/month Azure budget. Each phase produces a working, testable increment.
+Expensive services (APIM, AI Search, Service Bus, Redis) are deferred to
+later phases. Azure spend ramps from $0 to ~$100 as features are added.
+
+------------------------------------------------------------------------
+PHASE 1 -- Project Scaffolding & Foundation ($0/month)
+------------------------------------------------------------------------
+Goal: Both projects runnable locally with mock data; no external services.
+
+  Backend:
+    1. Initialize Azure Functions Python v2 project (api/)
+    2. Create shared/ package: models.py (Pydantic), exceptions.py,
+       response_helpers.py
+    3. Add health-check endpoint: GET /api/v1/health
+    4. Set up local.settings.json template + requirements.txt
+    5. Set up pytest with conftest.py + first smoke test
+
+  Frontend:
+    1. Initialize Flutter project with folder structure (lib/)
+    2. Configure pubspec.yaml dependencies (provider, go_router, dio,
+       hive, google_fonts, fl_chart)
+    3. Implement config/ -- theme.dart (colors, typography, spacing),
+       routes.dart (GoRouter), constants.dart, azure_config.dart
+    4. Create all Dart models with fromJson/toJson:
+       user_profile.dart, company.dart, job.dart, application.dart,
+       dashboard_stats.dart, filters.dart
+    5. Build ApiService (Dio) with interceptor stubs + error handling
+    6. Build MainShell with BottomNavigationBar (4 tabs, empty screens)
+    7. Create shared widgets: CompanyCard, JobCard, StatsCard,
+       MatchScoreIndicator, ApplicationStatusBadge, LoadingShimmer,
+       ErrorWidget
+
+  Deliverable: Both apps run locally. Flutter shows themed shell with
+  placeholder screens. Functions returns health check OK.
+
+------------------------------------------------------------------------
+PHASE 2 -- Authentication & User Profile (~$2/month)
+------------------------------------------------------------------------
+Goal: Users can sign up, log in, and complete onboarding.
+Cost: Cosmos DB Free Tier ($0), Blob Storage (<$0.02), B2C Free, Functions Free tier.
+
+CHANGED FROM ORIGINAL: No APIM. Functions exposed directly via HTTPS.
+JWT validation done in Functions middleware using python-jose.
+
+  Backend:
+    1. Set up Cosmos DB Free Tier (1000 RU/s, 25 GB) + profiles container
+       (partition: /userId)
+    2. Build auth_middleware.py -- validate B2C JWT directly using
+       python-jose (verify signature via JWKS, check audience/issuer,
+       extract userId from 'sub' claim). NO X-User-Id header.
+    3. POST /api/v1/auth/validate -- verify B2C token
+    4. POST /api/v1/profile -- create profile
+    5. GET  /api/v1/profile -- get current user profile
+    6. PUT  /api/v1/profile -- update profile (partial merge)
+    7. Set up Blob Storage client (shared/blob_client.py)
+    8. POST /api/v1/profile/resume -- upload resume to Blob
+    9. Configure Azure Functions CORS in host.json (no APIM CORS policy)
+    10. Unit tests for profile CRUD + auth middleware
+
+  Frontend:
+    1. Integrate Azure AD B2C via MSAL (auth_service.dart)
+    2. AuthProvider -- login(), logout(), refreshToken(), token storage
+    3. SplashScreen -- check auth state, route accordingly
+    4. LoginScreen + RegisterScreen with B2C web view
+    5. ProfileProvider -- loadProfile(), updateProfile(), uploadResume()
+    6. ProfileService -- HTTP calls directly to Functions URL
+    7. StorageService -- Blob upload/download via SAS URLs
+    8. OnboardingStepper (6 screens): PersonalInfo, Education,
+       Experience, Skills, Documents (resume upload), Review & Save
+    9. StepperProgress widget
+    10. Router guards: redirect to login if unauthenticated, redirect
+        to onboarding if profile incomplete
+
+  Deliverable: Full auth flow works without APIM overhead. Users can
+  register, log in, complete onboarding with resume upload. Profile
+  persisted in Cosmos DB.
+
+------------------------------------------------------------------------
+PHASE 3 -- Company & Job Discovery (Basic) (~$2/month, no increase)
+------------------------------------------------------------------------
+Goal: Users can browse companies and jobs with filtering. Search is
+Cosmos DB-based (CONTAINS queries); vector search added in Phase 4.
+
+  Backend:
+    1. Add companies (partition: /industry) and jobs (partition:
+       /companyId) containers to same Free Tier Cosmos DB account
+    2. Seed sample company and job data for development
+    3. GET  /api/v1/companies -- list with pagination + industry filter
+    4. GET  /api/v1/companies/{id} -- company detail
+    5. POST /api/v1/companies/{id}/follow -- follow/unfollow company
+    6. GET  /api/v1/jobs -- list with pagination + filters (location,
+       jobType, salary range, skills)
+    7. GET  /api/v1/jobs/{id} -- job detail
+    8. POST /api/v1/jobs/search -- basic text search via Cosmos SQL
+       (CONTAINS queries; replaced by vector search in Phase 4)
+    9. POST /api/v1/companies/search -- basic text search via Cosmos SQL
+    10. Unit tests for all endpoints
+
+  Frontend:
+    1. CompanyProvider -- loadCompanies(), searchCompanies(), follow()
+    2. CompanyService -- HTTP calls
+    3. CompanyListScreen -- paginated list with industry filter chips
+    4. CompanyDetailScreen -- about, open positions, follow button
+    5. JobProvider -- loadJobs(), searchJobs(), applyFilters()
+    6. JobService -- HTTP calls
+    7. JobFeedScreen -- search bar, filter chips, job cards
+    8. JobDetailScreen -- description, requirements, apply button (stub)
+    9. FilterChipBar widget
+    10. HomeScreen -- welcome banner, quick stats (stubs), company picks
+
+  Cost note: All 4 containers share the 1000 RU/s Free Tier. Sufficient
+  for development with <1000 documents.
+
+  Deliverable: Users can browse companies, follow them, search/filter
+  jobs, and view job details. No AI matching yet.
+
+------------------------------------------------------------------------
+PHASE 4 -- AI Features (~$15-25/month)
+------------------------------------------------------------------------
+Goal: AI-powered job matching, semantic search, resume parsing, and
+cover letter generation are functional.
+
+CHANGED FROM ORIGINAL: Use Cosmos DB integrated vector search instead of
+Azure AI Search. Saves $75/month.
+
+  Backend:
+    1. Set up Azure OpenAI client (shared/openai_client.py)
+       - GPT-4o for text generation (~$5/1M input, ~$15/1M output)
+       - text-embedding-3-large for embeddings (~$0.13/1M tokens)
+    2. Enable vector search on Cosmos DB jobs container:
+       - Add vector index policy (DiskANN, cosine, 1536 dimensions)
+       - Add embedding vector field to job documents
+       - NO separate Azure AI Search service needed
+    3. POST /api/v1/profile/resume/parse -- AI resume parsing flow:
+       Azure Document Intelligence OCR -> OpenAI structured extraction
+       (~$1.50/1000 pages)
+    4. GET /api/v1/jobs/match -- AI job matching:
+       a. Generate/retrieve user profile embedding
+       b. Vector search via Cosmos DB VectorDistance() function (top 100)
+       c. Calculate detailed match scores (skills 35%, experience 30%,
+          location 20%, salary 15%)
+       d. Apply boost factors (followed company +5, recent +2)
+       e. Return sorted results with match breakdowns
+       NOTE: No cache until Phase 7 -- results computed on each request
+    5. Upgrade POST /api/v1/jobs/search -- hybrid search:
+       Cosmos DB full-text search + vector search (both built-in)
+    6. Upgrade POST /api/v1/companies/search -- Cosmos DB full-text search
+    7. Build cover letter generator (generate_cover_letter.py):
+       GPT-4o with detailed prompt -> PDF via reportlab -> Blob upload
+    8. Update profile create/update to generate profile embeddings
+    9. Build job ingestion scrapers (timer-triggered, every 6h):
+       scrape_linkedin.py, scrape_indeed.py, scrape_glassdoor.py,
+       normalize_jobs.py -- normalize, embed, write to Cosmos with vectors
+    10. Unit + integration tests
+
+  Frontend:
+    1. Update JobProvider with getMatches() for AI-matched jobs
+    2. MatchScoreIndicator -- detailed breakdown (skills, exp, loc, salary)
+    3. Update JobFeedScreen -- "For You" tab showing AI matches
+    4. Update JobDetailScreen -- match score breakdown display
+    5. Resume parse flow in onboarding: upload -> parse -> review ->
+       confirm extracted data
+    6. Cover letter preview in job detail screen
+
+  Cost breakdown:
+    - Azure OpenAI: ~$10-20/month (moderate dev usage)
+    - Document Intelligence: ~$1-2/month (sporadic resume parsing)
+    - Cosmos DB vector search: included in RU cost (no extra charge)
+
+  Deliverable: Users see AI-matched jobs with scores, can search with
+  semantic understanding, parse resumes via AI, and preview cover letters.
+
+------------------------------------------------------------------------
+PHASE 5 -- Auto-Apply Engine (~$25-40/month)
+------------------------------------------------------------------------
+Goal: Users can queue jobs for automatic application via API, email, or
+browser automation.
+
+CHANGED FROM ORIGINAL: Use Azure Storage Queues (same Storage Account as
+Blob -- ~$0.01/month) instead of Service Bus ($10/month).
+
+  Backend:
+    1. Set up Azure Storage Queue client (shared/queue_client.py)
+       - Queue: auto-apply-queue (uses same Storage Account as Blob)
+       - Note: No dead-letter support. Failed messages tracked in Cosmos
+    2. Set up applications container in Cosmos DB
+    3. POST /api/v1/applications -- manual apply to a job
+    4. GET  /api/v1/applications -- list user applications
+    5. GET  /api/v1/applications/{id} -- application detail
+    6. PUT  /api/v1/applications/{id}/status -- update status
+    7. POST /api/v1/auto-apply -- queue jobs for auto-apply:
+       a. Max 20 jobIds per request
+       b. Daily limit check (Cosmos DB counter doc per userId+date)
+       c. Profile completeness check
+       d. Duplicate application check
+       e. Blacklisted company check
+       f. Create Application records (status: queued)
+       g. Send messages to Storage Queue
+       h. Increment daily counter in Cosmos
+    8. GET  /api/v1/auto-apply/queue -- view pending queue
+    9. DELETE /api/v1/auto-apply/queue/{id} -- cancel queued application
+    10. PUT /api/v1/auto-apply/settings -- update auto-apply preferences
+    11. process_application.py (Queue-triggered Azure Function):
+        a. Idempotency guard: check application status before processing
+        b. Load user profile + job details
+        c. Generate cover letter if enabled (Phase 4 function)
+        d. Apply via method:
+           - "api": POST to company API endpoint
+           - "email": Send via Azure Communication Services (~$0.25/1000)
+           - "browser": Spin up ACI with Playwright, fill form, submit
+             (~$0.002 per application at ~2 min)
+        e. Update status in Cosmos
+        f. Retry on failure (max 3, visibility timeout: 5min, 15min, 60min)
+        g. After 3 failures -> status = "failed" in Cosmos autoApplyLog
+    12. Unit + integration tests for queue processing
+
+  Frontend:
+    1. ApplicationProvider -- loadApplications(), applyToJob(),
+       autoApply(jobIds), cancelQueued(), loadQueue()
+    2. ApplicationService -- HTTP calls
+    3. Update JobDetailScreen -- "Apply" and "Auto-Apply" buttons wired
+    4. ApplicationListScreen -- filter tabs (All, Queue, Applied, Review,
+       Offer, Failed)
+    5. ApplicationDetailScreen -- status timeline, company info, cover
+       letter link, notes
+    6. Auto-Apply Settings Screen -- max per day, blacklist management,
+       cover letter toggle, review before send toggle
+
+  Cost breakdown:
+    - Storage Queue: ~$0.01/month
+    - ACI: ~$0.05/hour, ~$0.002/application (2-min run)
+    - Communication Services: ~$0.25/1000 emails
+    - OpenAI (cover letters): included in Phase 4 estimate
+
+  Deliverable: Full auto-apply pipeline works. Users can queue jobs,
+  applications are processed asynchronously, and status is tracked.
+
+------------------------------------------------------------------------
+PHASE 6 -- Dashboard & Application Tracking (~$25-40/month, no increase)
+------------------------------------------------------------------------
+Goal: Rich analytics dashboard with stats, charts, and timeline.
+
+  Backend:
+    1. GET /api/v1/dashboard/stats -- aggregate application statistics:
+       total applied, in review, offers, rejected, weekly delta
+    2. GET /api/v1/dashboard/timeline -- time-series data for charts:
+       applications per day/week over last 30 days
+    3. Aggregation queries on applications container
+
+  Frontend:
+    1. DashboardScreen -- StatsCards row (Applied, Review, Offers,
+       Rejected with deltas)
+    2. Weekly application chart (fl_chart)
+    3. Quick actions: "View Queue", "Matched Jobs", "Recent Applications"
+    4. Update HomeScreen -- real stats, top AI matches, recent
+       applications, company picks
+    5. Responsive layout: single column (mobile), 2-col (tablet),
+       3-col (desktop)
+
+  Deliverable: Dashboard shows real-time application stats and charts.
+  Home screen is fully populated with live data.
+
+------------------------------------------------------------------------
+PHASE 7 -- Scale & Production Hardening (~$55-75/month)
+------------------------------------------------------------------------
+Goal: Performance optimization with Redis caching, queue upgrade to
+Service Bus, push/email notifications, offline support.
+
+  Backend -- Redis Caching:
+    1. Provision Azure Redis Cache Basic C0 ($16/month)
+    2. Set up Redis client (shared/redis_client.py)
+    3. Implement read-through cache pattern:
+       - company:list:{industry}:{page}     -> 5 min TTL
+       - company:detail:{companyId}         -> 15 min TTL
+       - jobs:trending                      -> 10 min TTL
+       - user:matchcache:{userId}:{hash}    -> 30 min TTL
+    4. Migrate daily apply limit counter from Cosmos DB document to
+       Redis: user:applylimit:{userId}:{date} -> 24h TTL
+    5. Implement write-through invalidation on profile/company updates
+    6. Circuit breaker pattern per external service:
+       Track failure counts in Redis, open after 10 failures in 5 min,
+       half-open after 60s cooldown
+
+  Backend -- Queue Upgrade:
+    7. Provision Azure Service Bus Standard ($10/month)
+    8. Migrate from Storage Queue to Service Bus:
+       - Add dead-letter queue for failed applications
+       - Add message sessions for ordered processing per user
+       - Update process_application.py trigger from Queue to Service Bus
+       - Update shared/service_bus_client.py
+    9. Backfill any failed items from Cosmos autoApplyLog
+
+  Backend -- Notifications:
+    10. Set up Azure Notification Hubs Free tier (1M push/month)
+    11. Set up Azure Communication Services (already provisioned Phase 5)
+    12. Build notification_service.py -- push + email
+    13. Trigger notifications on: application status change, auto-apply
+        completion/failure, new high-match jobs (daily digest)
+
+  Frontend -- Notifications & Offline:
+    1. Push notification registration + handling
+    2. NotificationService -- FCM integration (via Azure Notification Hubs)
+    3. Offline mode with Hive local cache:
+       - Cache profile, recent companies, recent jobs locally
+       - Queue write operations when offline
+       - Show OfflineBanner widget
+       - Sync on reconnect
+    4. Pull-to-refresh on all list screens
+    5. Loading shimmer animations during data fetch
+    6. Error handling UX: 401 -> login, 429 -> toast, 500 -> retry
+
+  Cost breakdown:
+    - Redis Basic C0: $16/month
+    - Service Bus Standard: $10/month
+    - Notification Hubs Free: $0
+
+  Deliverable: App is significantly faster with cached reads. Users
+  receive push/email notifications. App works offline with cached data.
+  Queue processing has proper dead-letter support.
+
+------------------------------------------------------------------------
+PHASE 8 -- APIM, Infrastructure as Code & CI/CD (~$75-100/month)
+------------------------------------------------------------------------
+Goal: API gateway, automated provisioning, and deployment pipelines.
+
+  APIM (Azure API Management Consumption Tier):
+    1. Provision APIM Consumption tier (~$3.50 per million API calls)
+    2. Configure: JWT validation policy (B2C tokens), rate limiting
+       (100 req/min/user), CORS, API versioning (/api/v1/*)
+    3. Route: Flutter app -> APIM -> Azure Functions
+    4. Update Flutter ApiService base URL from Functions to APIM gateway
+    5. Keep Functions auth middleware as defense-in-depth
+    6. Enable APIM response caching (5 min TTL for companies, jobs)
+
+  Evaluate Azure AI Search upgrade:
+    7. If Cosmos DB vector search performance is insufficient at current
+       data volume, provision Azure AI Search Basic ($75/month)
+    8. Otherwise keep Cosmos DB vector search (stay under budget)
+
+  Infrastructure (Bicep):
+    9. Codify all resources in Bicep templates (see C.11 for full list)
+    10. Resource Group: <resource-prefix>-{env}
+    11. Parameterized for dev/staging/prod environments
+
+  CI/CD (Azure DevOps Pipelines):
+    12. Flutter pipeline: analyze -> test -> build-android -> build-web
+        -> deploy web to Azure Static Web Apps
+    13. Functions pipeline: install -> pytest -> deploy staging ->
+        integration tests -> swap to production
+    14. Infrastructure pipeline: bicep build -> what-if -> deploy ->
+        verify health
+
+  Deliverable: Production API gateway, one-command provisioning of all
+  Azure resources, automated build/test/deploy on push to main.
+
+
+================================================================================
+PHASE DEPENDENCY SUMMARY
+================================================================================
+
+  Phase 1 (Foundation) -- $0
+    |-- Phase 2 (Auth & Profile) -- ~$2
+         |-- Phase 3 (Company & Job Discovery) -- ~$2
+              |-- Phase 4 (AI Features) -- ~$15-25
+                   |-- Phase 5 (Auto-Apply Engine) -- ~$25-40
+                        |-- Phase 6 (Dashboard) -- ~$25-40
+
+  Phase 7 (Scale & Harden) -- ~$55-75 -- independent, after Phase 5
+  Phase 8 (APIM, IaC, CI/CD) -- ~$75-100 -- can start in parallel from Phase 3
+
+
+================================================================================
+SERVICE DEFERRAL NOTES
+================================================================================
+
+Until Phase 7, the following substitutions apply:
+
+  Feature                | Without (Phases 1-6)            | With (Phase 7+)
+  -----------------------|---------------------------------|---------------------------
+  API Gateway            | Functions direct HTTPS          | APIM Consumption (Phase 8)
+  Search/Matching        | Cosmos DB VectorDistance()      | Same (upgrade to AI Search
+                         | + CONTAINS full-text            | only if perf insufficient)
+  Queue                  | Azure Storage Queue             | Azure Service Bus (Phase 7)
+  Dead-letter queue      | Failed status in Cosmos         | Service Bus DLQ (Phase 7)
+  Company/job lists      | Direct Cosmos DB query          | Redis read-through cache
+  Match results cache    | Re-compute on each request      | 30 min TTL cache
+  Daily apply limit      | Cosmos DB counter doc per       | Redis INCR + 24h EXPIRE
+                         | userId+date (query on apply)    |
+  Trending jobs          | Cosmos DB query                 | 10 min TTL cache
+  Push notifications     | Console log / in-app only       | Azure Notification Hubs
+  Circuit breaker        | Basic in-memory counter         | Redis-backed counters
+
+  Performance impact: Expect ~50-200ms added latency on cacheable reads.
+  Acceptable for development and early users.
+
+  Cost impact: Phases 1-6 total ~$25-40/month vs ~$200+/month if all
+  services were provisioned from the start.
+
+
+================================================================================
+PROJECT DECISIONS LOG
+================================================================================
+
+  Date        | Decision
+  ------------|------------------------------------------------------------
+  2026-04-03  | Platform: Flutter (Android + Web)
+  2026-04-03  | Backend: Azure Functions (Python, serverless)
+  2026-04-03  | Database: Azure Cosmos DB (NoSQL, Free Tier)
+  2026-04-03  | Auth: Azure AD B2C (JWT validated in Functions middleware)
+  2026-04-03  | AI: Azure OpenAI (GPT-4o + text-embedding-3-large)
+  2026-04-03  | Search: Cosmos DB vector search (DiskANN) + full-text
+  2026-04-03  | Queue: Storage Queues (Phase 5) -> Service Bus (Phase 7)
+  2026-04-03  | Browser Automation: Playwright on Azure Container Instances
+  2026-04-03  | State Management: Provider pattern in Flutter
+  2026-04-03  | Cache: Azure Redis (Phase 7) + Hive (local)
+  2026-04-03  | Design System: Material 3, Inter font, Blue primary
+  2026-04-03  | Phased implementation: 8 phases, $0 -> $100/month ramp
+  2026-04-03  | APIM deferred to Phase 8 (Consumption tier ~$3.50/M calls)
+  2026-04-03  | Azure AI Search skipped (Cosmos DB vector search instead)
+  2026-04-03  | Pre-Phase 7 caching: Cosmos DB counters, no Redis
+  2026-04-03  | CI/CD: Azure DevOps Pipelines
+  2026-04-03  | Budget: $100/month cap, ramps with phases
+  2026-04-03  | Firebase replaced with Azure (App Center, Azure SDK init)
+
+================================================================================
+END OF DESIGN DOCUMENT
+================================================================================

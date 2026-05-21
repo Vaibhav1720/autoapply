@@ -1,0 +1,37 @@
+{
+  "properties": {
+    "resource": {
+      "id": "job_vectors",
+      "partitionKey": {
+        "paths": ["/userId"],
+        "kind": "Hash"
+      },
+      "defaultTtl": -1,
+      "indexingPolicy": {
+        "indexingMode": "consistent",
+        "automatic": true,
+        "includedPaths": [{"path": "/*"}],
+        "excludedPaths": [
+          {"path": "/embedding/*"},
+          {"path": "/\"_etag\"/?"}
+        ],
+        "vectorIndexes": [
+          {"path": "/embedding", "type": "quantizedFlat"}
+        ]
+      },
+      "vectorEmbeddingPolicy": {
+        "vectorEmbeddings": [
+          {
+            "path": "/embedding",
+            "dataType": "float32",
+            "dimensions": 3072,
+            "distanceFunction": "cosine"
+          }
+        ]
+      }
+    },
+    "options": {
+      "autoscaleSettings": {"maxThroughput": 1000}
+    }
+  }
+}

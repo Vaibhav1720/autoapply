@@ -1,0 +1,213 @@
+# AutoApply CI/CD — Azure DevOps
+# See docs/PIPELINE.md for required pipeline variables and secrets.
+
+trigger:
+  branches:
+    include: [main]
+  paths:
+    include: ['api/**', 'app/**', 'infra/**', 'extension/**', 'tools/**', 'azure-pipelines.yml']
+
+pr:
+  branches:
+    include: [main]
+  paths:
+    include: ['api/**', 'app/**', 'azure-pipelines.yml']
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  # Defaults (override in Azure DevOps → Pipelines → Variables).
+  # See docs/PIPELINE.md for the full list.
+  functionAppName: autoapply-func-dev
+  resourceGroup: rg-autoapply-dev
+  apiBaseUrl: https://autoapply-func-dev.azurewebsites.net
+  adminEmails: vibhuu1720@gmail.com
+  swaName: autoapply-web-dev
+  # Deployment runs on `main` when tests pass. Set `enableDeploy` to `false` in
+  # Azure DevOps (queue-time or variable group) to temporarily disable deploys.
+  enableDeploy: false
+  runInfraDeploy: false
+  # Required for deploy stages (set in Azure DevOps if not inherited):
+  #   azureSubscription, googleClientId, adminEmails, staticWebAppDeploymentToken
+
+stages:
+  # ── Stage 1: Backend Tests ──────────────────────────────────────────────
+  - stage: BackendTest
+    displayName: 'Backend — Test'
+    jobs:
+      - job: PythonTests
+        displayName: 'Run pytest (offline + regression)'
+        steps:
+          - task: UsePythonVersion@0
+            inputs: { versionSpec: '3.11' }
+          - script: |
+              set -euo pipefail
+              cd api
+              python -m pip install --upgrade pip
+              pip install -r requirements.txt
+              python -m pytest tests/ -m "not live" -v --junitxml=test-results.xml
+            displayName: 'Install & test (exclude live scrapers)'
+          - task: PublishTestResults@2
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: 'api/test-results.xml'
+
+  # ── Stage 2: Flutter Tests ─────────────────────────────────────────────
+  - stage: FlutterTest
+    displayName: 'Flutter — Test'
+    jobs:
+      - job: FlutterTests
+        displayName: 'Analyze & test'
+        steps:
+          - task: FlutterInstall@0
+            inputs: { mode: 'auto', channel: 'stable' }
+          - script: |
+              set -euo pipefail
+              cd app
+              flutter pub get
+              flutter analyze --no-fatal-infos --no-fatal-warnings
+              flutter test
+            displayName: 'Pub get, analyze, test'
+
+  # ── Stage 3: Deploy Backend ────────────────────────────────────────────
+  - stage: DeployBackend
+    displayName: 'Deploy Functions'
+    dependsOn: BackendTest
+    condition: |
+      and(
+        succeeded(),
+        eq(variables['Build.SourceBranch'], 'refs/heads/main'),
+        ne(lower(coalesce(variables['enableDeploy'], 'true')), 'false')
+      )
+    jobs:
+      - deployment: DeployFunc
+        displayName: 'Deploy to Azure Functions'
+        environment: 'dev'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: UsePythonVersion@0
+                  inputs: { versionSpec: '3.11' }
+                - script: |
+                    set -euo pipefail
+                    cd api
+                    pip install -r requirements.txt --target .python_packages/lib/site-packages
+                  displayName: 'Install dependencies into package'
+                - task: AzureFunctionApp@2
+                  inputs:
+                    azureSubscription: $(azureSubscription)
+                    appType: 'functionAppLinux'
+                    appName: $(functionAppName)
+                    package: 'api'
+                    runtimeStack: 'PYTHON|3.11'
+                    deployToSlotOrASE: true
+                    slotName: 'staging'
+                - script: |
+                    set -euo pipefail
+                    echo "Waiting for staging slot..."
+                    sleep 30
+                    curl -fsS "https://$(functionAppName)-staging.azurewebsites.net/api/v1/health"
+                  displayName: 'Smoke test staging health'
+                - task: AzureAppServiceManage@0
+                  inputs:
+                    azureSubscription: $(azureSubscription)
+                    action: 'Swap Slots'
+                    webAppName: $(functionAppName)
+                    sourceSlot: 'staging'
+                    targetSlot: 'production'
+
+  # ── Stage 4: Deploy Flutter Web ────────────────────────────────────────
+  - stage: DeployWeb
+    displayName: 'Deploy Flutter Web'
+    dependsOn: FlutterTest
+    condition: |
+      and(
+        succeeded(),
+        eq(variables['Build.SourceBranch'], 'refs/heads/main'),
+        ne(lower(coalesce(variables['enableDeploy'], 'true')), 'false')
+      )
+    jobs:
+      - job: BuildAndDeploy
+        displayName: 'Build & deploy web'
+        steps:
+          - task: FlutterInstall@0
+            inputs: { mode: 'auto', channel: 'stable' }
+          - script: |
+              set -euo pipefail
+              if [ -z "$(googleClientId)" ] || echo "$(googleClientId)" | grep -q 'your-google-client-id'; then
+                echo "##vso[task.logissue type=error]Pipeline variable googleClientId is missing or still a placeholder."
+                exit 1
+              fi
+              if [ -z "$(apiBaseUrl)" ] || echo "$(apiBaseUrl)" | grep -q 'your-function-app'; then
+                echo "##vso[task.logissue type=error]Pipeline variable apiBaseUrl is missing or still a placeholder."
+                exit 1
+              fi
+              cd app
+              flutter pub get
+              flutter build web --release \
+                --dart-define=API_BASE_URL="$(apiBaseUrl)" \
+                --dart-define=GOOGLE_CLIENT_ID="$(googleClientId)" \
+                --dart-define=ADMIN_EMAILS="$(adminEmails)"
+            displayName: 'Build web (with dart-define)'
+          - task: AzureStaticWebApp@0
+            inputs:
+              app_location: 'app/build/web'
+              skip_app_build: true
+              azure_static_web_apps_api_token: $(staticWebAppDeploymentToken)
+
+  # ── Stage 5: Configure extension (optional, main only) ─────────────────
+  - stage: ConfigureExtension
+    displayName: 'Configure Chrome extension'
+    dependsOn: DeployWeb
+    condition: |
+      and(
+        succeeded(),
+        eq(variables['Build.SourceBranch'], 'refs/heads/main'),
+        ne(lower(coalesce(variables['enableDeploy'], 'true')), 'false')
+      )
+    jobs:
+      - job: PatchExtension
+        displayName: 'Patch extension placeholders'
+        steps:
+          - script: |
+              set -euo pipefail
+              export GOOGLE_CLIENT_ID="$(googleClientId)"
+              export API_BASE_URL="$(apiBaseUrl)"
+              bash tools/configure-extension.sh
+              echo "Extension JS patched — zip and publish manually or add a release step."
+            displayName: 'Run tools/configure-extension.sh'
+
+  # ── Stage 6: Infrastructure (opt-in) ───────────────────────────────────
+  - stage: Infrastructure
+    displayName: 'Infrastructure (Bicep)'
+    dependsOn: []
+    condition: |
+      and(
+        succeeded(),
+        eq(variables['Build.SourceBranch'], 'refs/heads/main'),
+        eq(lower(coalesce(variables['runInfraDeploy'], 'false')), 'true'),
+        ne(lower(coalesce(variables['enableDeploy'], 'true')), 'false')
+      )
+    jobs:
+      - job: DeployInfra
+        displayName: 'Deploy Bicep'
+        steps:
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: $(azureSubscription)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -euo pipefail
+                az bicep build --file infra/main.bicep
+                az deployment group what-if \
+                  --resource-group $(resourceGroup) \
+                  --template-file infra/main.bicep \
+                  --parameters env=dev
+                az deployment group create \
+                  --resource-group $(resourceGroup) \
+                  --template-file infra/main.bicep \
+                  --parameters env=dev

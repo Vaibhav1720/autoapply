@@ -1,0 +1,754 @@
+// Pricing + checkout screen.
+//
+// - Loads /api/v1/billing/plans (passes user's country → backend returns
+//   INR/Razorpay plans for India or USD/LemonSqueezy for other countries).
+// - Loads /api/v1/billing/subscription for the user's current sub state.
+// - On Upgrade click:
+//     India  → POST /api/v1/billing/razorpay/checkout → opens Razorpay link
+//     Others → POST /api/v1/billing/checkout          → opens Lemon Squeezy URL
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
+
+import 'package:auto_apply/config/theme.dart';
+import 'package:auto_apply/providers/profile_provider.dart';
+import 'package:auto_apply/services/api_service.dart';
+
+class PricingScreen extends StatefulWidget {
+  const PricingScreen({super.key});
+
+  @override
+  State<PricingScreen> createState() => _PricingScreenState();
+}
+
+class _PricingScreenState extends State<PricingScreen> {
+  bool _loading = true;
+  bool _checkoutBusy = false;
+  String? _busyPlanId;
+  String? _error;
+  List<Map<String, dynamic>> _plans = const [];
+  Map<String, dynamic> _sub = const {};
+  bool _isIndia = false;
+  // "one_time" or "recurring" — only relevant for India / Razorpay
+  String _paymentType = 'one_time';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  String get _userCountry {
+    final pp = context.read<ProfileProvider>();
+    return ((pp.profile?['applicationDetails'] as Map?)?['country'] as String? ?? '')
+        .trim()
+        .toUpperCase();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final api = context.read<ApiService>();
+      final country = _userCountry;
+      final plansResp = await api.get(
+        '/api/v1/billing/plans',
+        queryParameters: country.isNotEmpty ? {'country': country} : null,
+      );
+      final plans = (plansResp.data?['plans'] as List?) ?? const [];
+      final currency = (plansResp.data?['currency'] as String?) ?? 'USD';
+      Map<String, dynamic> sub = const {};
+      try {
+        final subResp = await api.get('/api/v1/billing/subscription');
+        if (subResp.data is Map) sub = Map<String, dynamic>.from(subResp.data);
+      } catch (_) {/* not signed in or no profile yet */}
+      if (!mounted) return;
+      setState(() {
+        _plans = plans.cast<Map<String, dynamic>>();
+        _sub = sub;
+        _isIndia = currency == 'INR';
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _startCheckout(Map<String, dynamic> plan) async {
+    if (_checkoutBusy) return;
+    setState(() {
+      _checkoutBusy = true;
+      _busyPlanId = plan['id'] as String?;
+    });
+    try {
+      final api = context.read<ApiService>();
+      final provider = (plan['paymentProvider'] as String?) ?? 'lemonsqueezy';
+      final endpoint = provider == 'razorpay'
+          ? '/api/v1/billing/razorpay/checkout'
+          : '/api/v1/billing/checkout';
+
+      // Send paymentType for both Razorpay and Lemon Squeezy
+      final body = <String, dynamic>{
+        'planId': plan['id'],
+        'paymentType': _paymentType,
+      };
+
+      final resp = await api.post(endpoint, data: body);
+      final url = (resp.data?['url'] ?? '').toString();
+      if (url.isEmpty) throw Exception('Checkout URL was empty');
+
+      html.window.open(url, '_blank');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(provider == 'razorpay'
+                ? 'Opening Razorpay secure checkout\u2026'
+                : 'Opening secure checkout in a new tab\u2026'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      String msg;
+      final s = e.toString();
+      if (s.contains('503') || s.contains('PAYMENT_UNAVAILABLE')) {
+        msg = _paymentType == 'one_time'
+            ? 'One-time payment is not yet configured for this plan. Please use the recurring subscription option or contact support.'
+            : 'Recurring subscriptions are being set up. Please try again soon or contact support.';
+      } else {
+        msg = 'Checkout failed: $s';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: AppTheme.error),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _checkoutBusy = false;
+          _busyPlanId = null;
+        });
+      }
+    }
+  }
+
+  bool get _isPro {
+    final tier = (_sub['tier'] ?? '').toString().toLowerCase();
+    return tier == 'pro' || tier == 'lifetime' || tier == 'admin';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final isWide = width >= 900;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pricing'),
+        leading: BackButton(onPressed: () => context.go('/profile')),
+      ),
+      body: SafeArea(
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? _ErrorView(message: _error!, onRetry: _load)
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1100),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _Header(isPro: _isPro, sub: _sub, isIndia: _isIndia),
+                            const SizedBox(height: 24),
+                            // Payment type toggle — shown for all users
+                            if (!_isPro)
+                              _PaymentTypeToggle(
+                                value: _paymentType,
+                                isIndia: _isIndia,
+                                onChanged: (v) => setState(() => _paymentType = v),
+                              ),
+                            if (!_isPro) const SizedBox(height: 20),
+                            isWide
+                                ? IntrinsicHeight(
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        for (final p in _plans)
+                                          Expanded(
+                                            child: Padding(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                                              child: _PlanCard(
+                                                plan: p,
+                                                isCurrent: _isCurrent(p),
+                                                isBusy: _busyPlanId == p['id'] && _checkoutBusy,
+                                                isPro: _isPro,
+                                                isIndia: _isIndia,
+                                                paymentType: _paymentType,
+                                                onSubscribe: () => _startCheckout(p),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  )
+                                : Column(
+                                    children: [
+                                      for (final p in _plans)
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 16),
+                                          child: _PlanCard(
+                                            plan: p,
+                                            isCurrent: _isCurrent(p),
+                                            isBusy: _busyPlanId == p['id'] && _checkoutBusy,
+                                            isPro: _isPro,
+                                            isIndia: _isIndia,
+                                            paymentType: _paymentType,
+                                            onSubscribe: () => _startCheckout(p),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                            const SizedBox(height: 28),
+                            _FAQ(isIndia: _isIndia),
+                            const SizedBox(height: 12),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+      ),
+    );
+  }
+
+  bool _isCurrent(Map<String, dynamic> plan) {
+    final id = (plan['id'] ?? '').toString();
+    final tier = (_sub['tier'] ?? '').toString().toLowerCase();
+    final interval = (_sub['interval'] ?? '').toString().toLowerCase();
+    if (id == 'free' && tier == 'free') return true;
+    if (id == 'pro_monthly' && tier == 'pro' && interval.startsWith('month')) return true;
+    if (id == 'pro_yearly' && tier == 'pro' && interval.startsWith('year')) return true;
+    return false;
+  }
+}
+
+
+// ── UI parts ──────────────────────────────────────────────────────────────
+
+class _Header extends StatelessWidget {
+  final bool isPro;
+  final bool isIndia;
+  final Map<String, dynamic> sub;
+  const _Header({required this.isPro, required this.sub, required this.isIndia});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          isPro ? 'You\'re on AutoApply Pro \ud83c\udf89' : 'Find your next job, faster',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: AppTheme.primary,
+              ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          isPro
+              ? 'All Pro features are unlocked. Manage your subscription anytime.'
+              : isIndia
+                  ? 'Cancel any time \u2022 30-day money-back guarantee \u2022 Secure checkout via Razorpay'
+                  : 'Cancel any time \u2022 30-day money-back guarantee \u2022 Secure checkout via Lemon Squeezy',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: Colors.grey.shade700,
+              ),
+        ),
+        if (isPro) ...[
+          const SizedBox(height: 16),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              if ((sub['renewsAt'] ?? '').toString().isNotEmpty)
+                _Chip(
+                  icon: Icons.event_repeat,
+                  label: 'Renews ${_fmtDate(sub['renewsAt'])}',
+                ),
+              if ((sub['endsAt'] ?? '').toString().isNotEmpty)
+                _Chip(
+                  icon: Icons.event_busy,
+                  label: 'Access until ${_fmtDate(sub['endsAt'])}',
+                ),
+              if ((sub['status'] ?? '').toString().isNotEmpty)
+                _Chip(
+                  icon: Icons.verified_user,
+                  label: 'Status: ${sub['status']}',
+                ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _fmtDate(dynamic v) {
+    if (v == null) return '';
+    try {
+      final dt = DateTime.parse(v.toString()).toLocal();
+      return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return v.toString();
+    }
+  }
+}
+
+class _Chip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _Chip({required this.icon, required this.label});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.primarySoft,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppTheme.primary),
+          const SizedBox(width: 6),
+          Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.primary)),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlanCard extends StatelessWidget {
+  final Map<String, dynamic> plan;
+  final bool isCurrent;
+  final bool isBusy;
+  final bool isPro;
+  final bool isIndia;
+  final String paymentType;
+  final VoidCallback onSubscribe;
+
+  const _PlanCard({
+    required this.plan,
+    required this.isCurrent,
+    required this.isBusy,
+    required this.isPro,
+    required this.isIndia,
+    required this.paymentType,
+    required this.onSubscribe,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final highlight = plan['highlight'] == true;
+    final isFree = plan['id'] == 'free';
+    final interval = (plan['interval'] ?? '').toString();
+    final features = (plan['features'] as List?)?.cast<String>() ?? const [];
+
+    // Display price string: prefer INR for India, USD for others
+    String priceDisplay;
+    if (isFree) {
+      priceDisplay = 'Free';
+    } else if (isIndia) {
+      final inr = (plan['priceInr'] as num?) ?? 0;
+      priceDisplay = '\u20b9${inr.toStringAsFixed(0)}';
+    } else {
+      final usd = (plan['priceUsd'] as num?) ?? 0;
+      priceDisplay = '\$${usd.toStringAsFixed(2)}';
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: highlight ? AppTheme.primary : Colors.grey.shade200,
+          width: highlight ? 2 : 1,
+        ),
+        boxShadow: [
+          if (highlight)
+            BoxShadow(
+              color: AppTheme.primary.withValues(alpha: 0.10),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  plan['name']?.toString() ?? '',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const Spacer(),
+                if (highlight)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text('Best value',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              plan['tagline']?.toString() ?? '',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  priceDisplay,
+                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.primary,
+                      ),
+                ),
+                if (!isFree) ...[
+                  const SizedBox(width: 6),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      '/ $interval',
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 18),
+            for (final f in features)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2),
+                      child: Icon(Icons.check_circle_rounded,
+                          color: AppTheme.success, size: 18),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(f, style: const TextStyle(fontSize: 14))),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: _ctaButton(context),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _ctaButton(BuildContext ctx) {
+    if (isBusy) {
+      return const FilledButton(
+        onPressed: null,
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+        ),
+      );
+    }
+    if (plan['id'] == 'free') {
+      return FilledButton.tonal(
+        onPressed: null,
+        child: Text(isPro ? 'Downgraded after billing ends' : 'Current plan'),
+      );
+    }
+    if (isCurrent) {
+      return FilledButton.tonal(
+        onPressed: null,
+        child: const Text('Current plan'),
+      );
+    }
+    // Build dynamic CTA label based on payment type
+    final String ctaLabel;
+    final interval = (plan['interval'] as String?) ?? 'month';
+    final periodShort = interval == 'year' ? 'yr' : 'mo';
+    if (isIndia && (plan['paymentProvider'] as String?) == 'razorpay') {
+      final priceStr = '₹${(plan['priceInr'] as num?)?.toStringAsFixed(0) ?? ''}';
+      ctaLabel = paymentType == 'recurring'
+          ? 'Subscribe — $priceStr/$periodShort'
+          : 'Pay once — $priceStr';
+    } else {
+      // Lemon Squeezy — also adapt label
+      final priceStr = '\$${(plan['priceUsd'] as num?)?.toStringAsFixed(2) ?? ''}';
+      ctaLabel = paymentType == 'recurring'
+          ? 'Subscribe — $priceStr/$periodShort'
+          : 'Pay once — $priceStr';
+    }
+
+    return FilledButton(
+      onPressed: onSubscribe,
+      style: FilledButton.styleFrom(
+        backgroundColor: AppTheme.primary,
+        textStyle: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      child: Text(ctaLabel),
+    );
+  }
+}
+
+// ── Payment type toggle ───────────────────────────────────────────────────
+
+class _PaymentTypeToggle extends StatelessWidget {
+  final String value;
+  final bool isIndia;
+  final ValueChanged<String> onChanged;
+  const _PaymentTypeToggle({
+    required this.value,
+    required this.isIndia,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          'How would you like to pay?',
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: AppTheme.textSecondary,
+              ),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          decoration: BoxDecoration(
+            color: AppTheme.primarySoft,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.primary.withValues(alpha: 0.18)),
+          ),
+          padding: const EdgeInsets.all(4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _ToggleOption(
+                label: 'One-time payment',
+                sublabel: 'No auto-renewal',
+                icon: Icons.payment_rounded,
+                selected: value == 'one_time',
+                onTap: () => onChanged('one_time'),
+              ),
+              const SizedBox(width: 4),
+              _ToggleOption(
+                label: 'Auto-renewing',
+                sublabel: 'Cancel anytime',
+                icon: Icons.autorenew_rounded,
+                selected: value == 'recurring',
+                onTap: () => onChanged('recurring'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          value == 'one_time'
+              ? 'Pay for one period. Access expires at the end — no charges after.'
+              : isIndia
+                  ? 'Auto-renews via Razorpay each period. Cancel anytime from your profile.'
+                  : 'Auto-renews via Lemon Squeezy each period. Cancel anytime from your profile.',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+}
+
+class _ToggleOption extends StatelessWidget {
+  final String label;
+  final String sublabel;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+  const _ToggleOption({
+    required this.label,
+    required this.sublabel,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? AppTheme.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon,
+                size: 20,
+                color: selected ? Colors.white : AppTheme.primary),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: selected ? Colors.white : AppTheme.primary,
+              ),
+            ),
+            Text(
+              sublabel,
+              style: TextStyle(
+                fontSize: 11,
+                color: selected
+                    ? Colors.white.withValues(alpha: 0.85)
+                    : Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FAQ extends StatelessWidget {
+  final bool isIndia;
+  const _FAQ({required this.isIndia});
+
+  @override
+  Widget build(BuildContext context) {
+    final faqs = [
+      [
+        'How is my payment processed?',
+        isIndia
+            ? 'Razorpay is our secure Indian payment gateway. Your card details never touch our servers. UPI, net banking, cards, and wallets are all supported.'
+            : 'Lemon Squeezy is the secure merchant of record. Your card never touches our servers. They handle all global taxes (VAT, GST, sales tax) so you see one transparent price.',
+      ],
+      [
+        'Can I cancel anytime?',
+        'Yes \u2014 cancel from your account page in one click. You keep Pro access until the end of the current billing period.',
+      ],
+      [
+        'Do you offer refunds?',
+        'Yes. We offer a 30-day money-back guarantee. Email us within 30 days of purchase and we\'ll process a full refund.',
+      ],
+      [
+        'What payment methods do you accept?',
+        isIndia
+            ? 'UPI, credit/debit cards (Visa, Mastercard, RuPay), net banking, Paytm, PhonePe, and most popular wallets. Payments are in Indian Rupees (INR).'
+            : 'All major cards (Visa, Mastercard, Amex, Discover), Apple Pay, Google Pay, PayPal. Charges appear in your local currency.',
+      ],
+      [
+        'Will I receive an invoice?',
+        isIndia
+            ? 'Yes. Razorpay emails a GST-compliant invoice for every payment. You can also download past receipts from the Razorpay dashboard.'
+            : 'Yes. Lemon Squeezy emails a tax-compliant invoice for every charge. You can also download past invoices from the customer portal.',
+      ],
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Frequently asked questions',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                )),
+        const SizedBox(height: 8),
+        for (final q in faqs)
+          Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.grey.shade200),
+            ),
+            margin: const EdgeInsets.only(bottom: 8),
+            child: ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+              title: Text(q[0],
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(q[1], style: const TextStyle(height: 1.4)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ErrorView extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _ErrorView({required this.message, required this.onRetry});
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: AppTheme.error),
+            const SizedBox(height: 12),
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

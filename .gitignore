@@ -1,0 +1,103 @@
+# --- Secrets / signing material (never commit) ---
+*.pem
+*.crx
+*.key
+.env
+.env.*
+local.settings.json
+tools/pipeline-variables.env
+
+# --- Python (api/) ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.mypy_cache/
+
+# --- Azure Functions ---
+.python_packages/
+bin/
+obj/
+
+# --- Flutter / Dart (app/) ---
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/build/
+app/.idea/
+app/android/.gradle/
+app/android/local.properties
+app/ios/Pods/
+app/ios/.symlinks/
+app/web/main.dart.js*
+
+# --- Node / Chrome extension build artifacts ---
+extension/node_modules/
+extension/dist/
+extension.zip
+
+# --- IDE ---
+.vscode/
+.idea/
+
+# --- OS ---
+Thumbs.db
+.DS_Store
+
+# --- Logs / scratch / dumps (PII risk) ---
+*.log
+*.bak
+*.bak_*
+**/*.log
+last_response.json
+last_run_*.json
+last_run_*.log
+regression_results_*.json
+loadtest_*
+scraper_audit_*
+scrape_audit_*
+funnel_4users_*
+funnel_*.json
+funnel_*.log
+url_audit.log
+linkedin_resp.txt
+profiles_all.json
+li1.json
+li2.json
+rest_out.txt
+rest_v*.txt
+rest2.txt
+uber_probe*.json
+.testtoken
+
+# --- Scratch / experimental scripts (api/, tools/) ---
+api/_*.py
+api/eval/_*.py
+api/eval/_*.ps1
+api/eval/funnel_*.py
+api/eval/regression_real_users.py
+api/eval/golden/
+api/eval/__init__.py
+tools/_*.py
+tools/_*.json
+tools/_*.txt
+tools/funnel_4users.py
+tools/scrape_audit_all.py
+
+# --- Build outputs ---
+build/
+build-*/
+*.zip
+extension.crx
+*-app.zip
+autoapply-extension-*.zip
+
+# --- Migration / backup snapshots ---
+flex_migration_backup/
+*.bak_pre_*
+
+# --- Infra cost templates with subscription IDs ---
+infra/budget_*.json
+infra/anomaly_*.json
+

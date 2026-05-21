@@ -1,0 +1,274 @@
+================================================================================
+                    AutoApply — Job Discovery + Autofill Platform (v2)
+                    LIVING DESIGN DOCUMENT
+================================================================================
+
+Date: May 7, 2026
+Status: In active development (extension v1.6.14 / backend GA)
+
+================================================================================
+PRODUCT PILLARS
+================================================================================
+
+1. AUTH — Email/password signup + login, JWT sessions
+2. PROFILE — Resume parse + manual edit (skills, experience, education,
+             address, EEO answers, default cover letter)
+3. COMPANY DISCOVERY — Curated list, scrape selected companies' careers pages,
+                       AI-rerank against profile, return ranked job list
+4. AUTOFILL — Chrome extension fills any job application form using
+              rule-based mapping + AI suggestions (rules first, AI for
+              uncovered/low-confidence fields, ask-panel for the rest)
+
+================================================================================
+SHIPPED COMPONENTS
+================================================================================
+
+A. CHROME EXTENSION (extension/, MV3, v1.6.6)
+   - manifest.json: permissions ["activeTab","storage","scripting"],
+     host_permissions for backend + greenhouse / lever / workday / ashby /
+     workable / smartrecruiters / icims / eightfold; optional_host_permissions
+     for arbitrary https://*. NO content_scripts entry — popup-driven on-demand
+     injection only (avoids V8 Genesis::ConfigureApiObject crash on Eightfold).
+   - background.js: 3 live message handlers — SUGGEST_ANSWERS,
+     FETCH_PROFILE_FOR_FILL, SAVE_CUSTOM_ANSWERS.
+   - content.js v1.6.6: version-guarded IIFE; bounded shadow-DOM/iframe
+     traversal (200 fields, 20k nodes, 8 shadow depth, 5 iframes). Detects
+     fields, applies rule-based fills (regex map), then AI smart-fill,
+     then ask-panel for any field with confidence < 0.6.
+       MutationObserver waits up to 8 s for SPA-hydrated forms.
+       Listens for AUTOAPPLY_SYNC_TOKEN / AUTOAPPLY_CHECK_EXTENSION
+       window.postMessage from the Flutter app to bridge auth.
+   - popup.html / popup.js: signup/login/profile-card with completeness
+     bar + missing-info banner that lists up to 6 missing fields and a
+     "Fill missing details →" button that opens options.html.
+   - options.html / options.js: full profile editor with chunked base64
+     resume upload, completeness bar, and amber-highlighted missing-field
+     inputs (.field-missing CSS) so users see exactly which fields to fill.
+
+B. AZURE FUNCTIONS BACKEND (api/, Python 3.11, <your-function-app>)
+   Auth
+     POST   /api/v1/auth/signup
+     POST   /api/v1/auth/login
+   Profile
+     GET    /api/v1/profile
+     PUT    /api/v1/profile
+     POST   /api/v1/profile/resume                 (chunked base64 PDF)
+     GET    /api/v1/profile/missing-info           (REQUIRED keys only;
+                                                    optional EEO/url fields
+                                                    are NEVER reported)
+     PUT    /api/v1/profile/application-details
+   Autofill (used by Chrome extension)
+     GET    /api/v1/autofill/profile
+     POST   /api/v1/autofill/suggest               (rules+AI smart fill)
+     POST   /api/v1/autofill/save-answers          (memory for next time)
+   Discovery
+     GET    /api/v1/companies
+     POST   /api/v1/companies/select
+     GET    /api/v1/companies/selected
+     POST   /api/v1/jobs/discover                  (scrape + AI rerank)
+     GET    /api/v1/jobs/results                   (cached results)
+   Resume
+     POST   /api/v1/resume/review                  (AI critique)
+
+C. FLUTTER WEB/ANDROID APP (app/, lib/)
+   Tabs: Discover, Companies, Profile (and screens/auth for login/signup).
+   Bridges to extension via window.postMessage so signing in once syncs
+   the JWT to chrome.storage. Hosted at
+   https://<your-static-web-app>.azurestaticapps.net.
+
+================================================================================
+RESUME PARSE -> PROFILE (api/function_app.py · _extract_skills_from_resume)
+================================================================================
+
+PDF text extracted with pypdf, then sent to Azure OpenAI (gpt41) with a
+strict system prompt. Returns ALL of:
+  firstName, lastName, skills[], education[], experience[],
+  email, phone, linkedin, github, portfolio,
+  address, city, state, country (full name), zip,
+  summary, totalYears,
+  coverLetter   <- NEW in v1.6.6: 4-6 sentence default
+                  "Why are you a good fit?" answer in the candidate's voice.
+                  Auto-populated into applicationDetails.coverLetter on
+                  resume upload (only if user hasn't written one).
+
+The parsed coverLetter is then used by /api/v1/autofill/suggest as the
+default value for any free-text "tell us about yourself / why this role"
+fields the AI smart-fill encounters.
+
+================================================================================
+MISSING-INFO LOGIC (api/function_app.py · get_missing_info)
+================================================================================
+
+REQUIRED (reported as missing if blank):
+  firstName, lastName, phone,
+  country, city, state, zip,
+  visaStatus, willingToRelocate, salaryExpectation, noticePeriod
+
+OPTIONAL (rendered in the editor but never flagged as missing; tracked in
+_OPTIONAL_QUESTION_KEYS):
+  address, githubUrl, portfolioUrl, coverLetter, remoteWork,
+  gender, ethnicity, veteranStatus, disability
+
+Completeness % is computed only over the REQUIRED set.
+
+================================================================================
+COSMOS DB CONTAINERS
+================================================================================
+
+1. users        (partition /id)        id, email, passwordHash, name, createdAt
+2. profiles     (partition /userId)    userId, personal{firstName,lastName,
+                                       phone,linkedinUrl,githubUrl,portfolioUrl},
+                                       skills{technical,soft},
+                                       experience[], education[],
+                                       applicationDetails{address,city,state,zip,
+                                       country,coverLetter,salaryExpectation,
+                                       noticePeriod,visaStatus,willingToRelocate,
+                                       remoteWork,gender,veteranStatus,
+                                       disability,ethnicity},
+                                       documents{resumeUrl,parsedResumeData},
+                                       aiSummary, profileEmbedding[3072],
+                                       selectedCompanies[]
+3. companies    (partition /industry)  id, name, industry, careersUrl, logoUrl
+4. job_results  (partition /userId)    userId, companyId, jobs[],
+                                       scrapedAt, matchedAt
+5. autofill_memory (partition /userId) per-user normalized-label -> answer cache
+                                       (saved via /api/v1/autofill/save-answers)
+
+================================================================================
+AUTOFILL SUGGEST PIPELINE (POST /api/v1/autofill/suggest)
+================================================================================
+
+For each detected field {key, label, type, options?}:
+  1. MEMORY    — exact normalized-label hit in autofill_memory  -> conf 1.0
+  2. HEURISTIC — regex map over label -> profile attribute
+        Skips placeholder values (city='city', state='state',
+        address='home', n/a, none, tbd, ...) so old junk doesn't leak.
+  3. AI        — Azure OpenAI gpt41 with json_object response
+        coverLetter is fed in as default for "why a good fit / tell us
+        about yourself" prompts.
+        Output post-processed by _validate_ai_answer:
+          * _PDF_GARBAGE_RE strips MediaBox leakage like "0 0 595.32 841"
+          * yes/no detector maps yes/y/true/1 -> "Yes", no/n/false/0 -> "No"
+          * select forces value to one of the provided options or blanks it
+  4. NONE      — confidence 0; extension shows ask-panel to user.
+
+Anything with confidence < 0.8 also surfaces in the ask-panel; user answer
+gets POSTed to /api/v1/autofill/save-answers and lives forever in memory.
+Learned answers are stored in profile.applicationDetails.customAnswers as
+{ normalizedKey: { label, value } } and surfaced in the options page so
+the user can edit or remove any of them.
+
+================================================================================
+TECH STACK
+================================================================================
+
+Frontend:    Flutter (Web + Android), Chrome MV3 extension
+Backend:     Azure Functions (Python 3.11, v2 model)
+Database:    Azure Cosmos DB
+File Store:  Azure Blob Storage
+Auth:        Custom JWT (bcrypt + python-jose)
+Scraping:    requests + BeautifulSoup (greenhouse/lever/workday/ashby/
+             workable/smartrecruiters/icims/eightfold adapters)
+AI:          Azure AI Foundry (<your-ai-resource>)
+               * gpt-4.1   (resume parse + autofill suggest + rerank)
+               * text-embedding-3-small  (3072-dim profile/job vectors)
+Hosting:     <your-function-app>.azurewebsites.net (API)
+             <your-static-web-app>.azurestaticapps.net (Flutter web)
+
+================================================================================
+RECENT SHIPS
+================================================================================
+
+v1.6.0 — Removed content_scripts entry (V8 crash fix on Eightfold)
+v1.6.1 — waitForFields MutationObserver for SPA forms
+v1.6.2 — Retry injection if first pass returns 0 fields
+v1.6.3 — Added greenhouse/lever/workday/ashby/workable/smartrecruiters/
+         icims/eightfold to host_permissions
+v1.6.4 — Removed FAB; added missing-info banner in popup; backend
+         _validate_ai_answer + _PLACEHOLDER_VALUES filter
+v1.6.5 — Dead-code sweep (dropped 4 unused background handlers,
+         PING handler, _parseResponse, stale widget_test)
+v1.6.6 — Default cover letter auto-generated from resume by AI;
+         optional fields (portfolioUrl, githubUrl, EEO, ...) excluded
+         from missing-info; options page highlights missing inputs
+         in amber so users can see exactly which to fill
+v1.6.7 — AI confidence threshold raised 0.6 → 0.8 (any field below 80%
+         confidence triggers the ask-panel popup); profile completeness
+         UI no longer shows "100% complete" — a profile is open-ended,
+         so the popup/options now show "X of Y required fields saved"
+         plus a count of learned custom answers; new "Saved answers
+         from past applications" card in options page lists every
+         custom answer the user has ever entered (editable + removable),
+         backed by applicationDetails.customAnswers in Cosmos
+v1.6.8 — Removed redundant "Autofill this page" button; the rules-only
+         pass already runs as the first step inside Smart Fill, so the
+         popup now exposes a single "⚡ Autofill with AI" action.
+         Dropped the dead AUTOFILL_NOW message handler from content.js.
+v1.6.9 — Speed-up: Smart Fill no longer runs waitForFields() twice
+         (saves up to 8 s on slow SPAs); waitForFields hard timeout
+         dropped 8 s → 4 s; popup status now ticks "Reading form…"
+         → "Asking AI for answers…" so users see progress.
+v1.6.10 — No more infinite spinners: every backend fetch in
+         background.js now uses AbortSignal.timeout (15s for profile/save,
+         25s for AI); safeSendMessage in content.js bounds itself to
+         25s; popup-side askFrames has a 30s hard ceiling that surfaces
+         whatever has been collected so far. Added *.netflix.net to
+         host_permissions for explore.jobs.netflix.net (Netflix uses
+         Eightfold but on its own domain).
+v1.6.11 — Netflix-careers fix: chrome.scripting.executeScript can hang
+         on pages with many cross-origin frames (Netflix has 5+).
+         inject() now has a 6s timeout and falls back to top-frame-only
+         injection so the fill always proceeds. Popup status now shows
+         a live elapsed-seconds counter and phased messages so the
+         spinner is never silent.
+v1.6.12 — Improved "no form found" guidance for slow-loading SPAs
+         (Netflix CDN 429s): popup now tells the user to wait for the
+         form to render then click Autofill again instead of looking
+         like the extension is broken.
+v1.6.13 — Google Sign-In replaces email/password.
+           Backend  : new POST /api/v1/auth/google verifies a Google ID
+                      token via google-auth, looks up the user by
+                      email/googleSub, creates the account on first
+                      login, and issues the same HS256 JWT as before.
+                      Reads GOOGLE_CLIENT_IDS env var (comma-separated
+                      list, accepts web + extension client IDs).
+           Extension: popup auth UI replaced with a single "Sign in
+                      with Google" button. Uses
+                      chrome.identity.launchWebAuthFlow with response
+                      type id_token + nonce + chromiumapp.org redirect
+                      URI. New `identity` permission added to manifest;
+                      GOOGLE_CLIENT_ID constant lives in popup.js.
+           Flutter  : web/index.html loads Google Identity Services;
+                      LoginScreen replaced with a Google-only button
+                      that calls google.accounts.id.prompt() via a
+                      js_interop helper, then exchanges the credential
+                      for our JWT through AuthProvider.loginWithGoogle.
+                      googleClientId constant in azure_config.dart.
+           Legacy   : /api/v1/auth/signup and /api/v1/auth/login are
+                      still mounted (back-compat for existing tokens)
+                      but no UI surfaces them anymore.
+v1.6.14 — Pre-launch hardening for Chrome Web Store submission.
+           Backend  : removed legacy /api/v1/auth/signup and
+                      /api/v1/auth/login endpoints (Google-only) and
+                      stripped bcrypt + signup/login helpers from
+                      shared/auth_v2.py. JWT minting now refuses the
+                      well-known dev secret; JWT_SECRET app setting
+                      rotated to a 64-char random value. The
+                      X-Dev-User-Id impersonation header is now gated
+                      by ALLOW_DEV_USER_HEADER (defaults to off in
+                      prod) so it can no longer be abused for
+                      cross-account access.
+           Extension: bumped to v1.6.14, refined description, dropped
+                      http://*/* from optional_host_permissions, hid
+                      the dev "paste a JWT" panel, and after a fresh
+                      Google sign-in we auto-open the options page
+                      when the profile has no resume yet.
+           Repo     : added a comprehensive .gitignore (now includes
+                      *.pem and *.crx so the extension signing key
+                      can't be committed accidentally).
+           Docs     : privacy.html updated to describe Google sign-in
+                      and Limited Use compliance for Google user data.
+
+================================================================================
+END OF LIVING DESIGN DOCUMENT
+================================================================================

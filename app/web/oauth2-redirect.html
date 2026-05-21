@@ -1,0 +1,15 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Signing in…</title></head>
+<body>
+<script>
+  (function () {
+    try {
+      var hash = window.location.hash || '';
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage({ source: 'autoapply-google-oauth', hash: hash }, window.location.origin);
+      }
+    } catch (e) {}
+    window.close();
+  })();
+</script>
+</body></html>

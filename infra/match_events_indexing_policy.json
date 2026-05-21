@@ -1,0 +1,20 @@
+{
+  "indexingMode": "consistent",
+  "automatic": true,
+  "includedPaths": [
+    { "path": "/userId/?" },
+    { "path": "/companyId/?" },
+    { "path": "/timestamp/?" },
+    { "path": "/searchId/?" }
+  ],
+  "excludedPaths": [
+    { "path": "/*" },
+    { "path": "/\"_etag\"/?" }
+  ],
+  "compositeIndexes": [
+    [
+      { "path": "/userId", "order": "ascending" },
+      { "path": "/timestamp", "order": "descending" }
+    ]
+  ]
+}

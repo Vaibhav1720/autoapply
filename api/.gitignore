@@ -1,0 +1,6 @@
+# Add .gitignore for local settings
+local.settings.json
+__pycache__/
+.python_packages/
+.venv/
+*.pyc

@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AutoApply – Settings</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #F9FAFB; color: #111827; padding: 24px; }
+    .container { max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 24px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+    h1 .brand { color: #4F46E5; }
+    .subtitle { color: #6B7280; font-size: 14px; margin-bottom: 24px; }
+    .card { background: #fff; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+    h2 { font-size: 16px; font-weight: 600; margin-bottom: 12px; color: #111827; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .group { margin-bottom: 12px; }
+    .full { grid-column: 1 / -1; }
+    label { font-size: 12px; color: #374151; display: block; margin-bottom: 4px; font-weight: 500; }
+    input, select, textarea { width: 100%; padding: 9px 11px; border: 1px solid #D1D5DB; border-radius: 6px; font-size: 14px; font-family: inherit; background: #fff; }
+    textarea { min-height: 100px; resize: vertical; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: #4F46E5; box-shadow: 0 0 0 2px rgba(79,70,229,0.1); }
+    .field-missing input, .field-missing select, .field-missing textarea { border-color: #F59E0B; background: #FFFBEB; }
+    .field-missing label::after { content: " · required"; color: #B45309; font-size: 11px; font-weight: 600; }
+    .btn { padding: 10px 18px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity .15s; }
+    .btn-primary { background: #4F46E5; color: #fff; }
+    .btn-outline { background: transparent; border: 1px solid #D1D5DB; color: #374151; }
+    .btn:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+    .status.ok { background: #ECFDF5; color: #065F46; }
+    .status.err { background: #FEF2F2; color: #991B1B; }
+    .status.info { background: #EFF6FF; color: #1E40AF; }
+    .resume-drop { border: 2px dashed #D1D5DB; border-radius: 8px; padding: 24px; text-align: center; cursor: pointer; transition: border-color .15s; }
+    .resume-drop:hover, .resume-drop.dragover { border-color: #4F46E5; background: #F5F3FF; }
+    .resume-info { font-size: 13px; color: #374151; margin-top: 8px; }
+    .actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px; }
+    .small { font-size: 12px; color: #6B7280; }
+    .completeness-card { background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); color: #fff; }
+    .completeness-card h2 { color: #fff; }
+    .completeness-card .progress { height: 8px; background: rgba(255,255,255,0.2); border-radius: 4px; overflow: hidden; margin: 8px 0; }
+    .completeness-card .progress-bar { height: 100%; background: #fff; transition: width .3s; }
+    .signed-out { text-align: center; padding: 60px 20px; }
+    .signed-out h2 { font-size: 20px; margin-bottom: 12px; }
+    .signed-out p { color: #6B7280; margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>⚡ <span class="brand">AutoApply</span> Settings</h1>
+    <div class="subtitle">Manage your profile, resume, and autofill preferences. Changes sync to all your devices.</div>
+
+    <div id="status"></div>
+
+    <!-- Signed-out state -->
+    <div id="signedOutBlock" class="card signed-out" style="display:none">
+      <h2>Sign in to manage your profile</h2>
+      <p>Open the AutoApply extension popup and sign in or create an account.</p>
+    </div>
+
+    <!-- Signed-in content -->
+    <div id="mainContent" style="display:none">
+      <!-- Profile summary card -->
+      <div class="card completeness-card">
+        <h2 id="userNameHeader">—</h2>
+        <div id="completenessText" style="font-size:13px;margin-top:6px">Loading…</div>
+      </div>
+
+      <!-- Resume -->
+      <div class="card">
+        <h2>📄 Resume</h2>
+        <div class="small" style="margin-bottom:12px">Upload your resume — we'll auto-extract your name, contact, education, skills and work history.</div>
+        <div class="resume-drop" id="resumeDrop">
+          <div>📤 Click or drag a PDF/DOCX here</div>
+          <div class="small" style="margin-top:6px">Max 5 MB · We never share your resume</div>
+        </div>
+        <input type="file" id="resumeFile" accept=".pdf,.docx,.doc" style="display:none">
+        <div class="resume-info" id="resumeInfo"></div>
+      </div>
+
+      <!-- Personal & Contact -->
+      <div class="card">
+        <h2>👤 Personal & Contact</h2>
+        <div class="grid">
+          <div class="group"><label>First name</label><input id="firstName" type="text"></div>
+          <div class="group"><label>Last name</label><input id="lastName" type="text"></div>
+          <div class="group"><label>Email</label><input id="email" type="email" disabled></div>
+          <div class="group"><label>Phone</label><input id="phone" type="tel" placeholder="+91 98765 43210"></div>
+          <div class="group full"><label>LinkedIn URL</label><input id="linkedinUrl" type="url" placeholder="https://linkedin.com/in/..."></div>
+          <div class="group full"><label>GitHub URL</label><input id="githubUrl" type="url" placeholder="https://github.com/..."></div>
+          <div class="group full"><label>Portfolio / website</label><input id="portfolioUrl" type="url" placeholder="https://..."></div>
+        </div>
+      </div>
+
+      <!-- Address -->
+      <div class="card">
+        <h2>🏠 Address</h2>
+        <div class="grid">
+          <div class="group full"><label>Street address</label><input id="address" type="text"></div>
+          <div class="group"><label>City</label><input id="city" type="text"></div>
+          <div class="group"><label>State / Province</label><input id="state" type="text"></div>
+          <div class="group"><label>Zip / Postal code</label><input id="zip" type="text"></div>
+          <div class="group"><label>Country</label><input id="country" type="text" placeholder="India"></div>
+        </div>
+      </div>
+
+      <!-- Work Authorization -->
+      <div class="card">
+        <h2>🛂 Work Authorization & Logistics</h2>
+        <div class="grid">
+          <div class="group full">
+            <label>Visa / Work authorization</label>
+            <select id="visaStatus">
+              <option value="">— Select —</option>
+              <option>US Citizen</option><option>Green Card</option><option>H1B</option>
+              <option>H4 EAD</option><option>OPT</option><option>CPT</option>
+              <option>L1</option><option>TN</option><option>O1</option>
+              <option>Need Sponsorship</option><option>Other</option>
+            </select>
+          </div>
+          <div class="group">
+            <label>Willing to relocate</label>
+            <select id="willingToRelocate">
+              <option value="">— Select —</option><option>Yes</option><option>No</option><option>Open to discussion</option>
+            </select>
+          </div>
+          <div class="group">
+            <label>Open to fully remote</label>
+            <select id="remoteWork">
+              <option value="">— Select —</option><option>Yes</option><option>No</option><option>Hybrid only</option>
+            </select>
+          </div>
+          <div class="group"><label>Salary expectation</label><input id="salaryExpectation" type="text" placeholder="$120,000 or ₹25 LPA"></div>
+          <div class="group"><label>Notice period</label><input id="noticePeriod" type="text" placeholder="2 weeks, Immediately"></div>
+        </div>
+      </div>
+
+      <!-- EEO -->
+      <div class="card">
+        <h2>📊 Equal Opportunity (Optional)</h2>
+        <div class="small" style="margin-bottom:12px">Only used when applications ask. Always optional.</div>
+        <div class="grid">
+          <div class="group">
+            <label>Gender</label>
+            <select id="gender">
+              <option value="">— Select —</option><option>Male</option><option>Female</option><option>Non-binary</option><option>Prefer not to say</option>
+            </select>
+          </div>
+          <div class="group">
+            <label>Veteran status</label>
+            <select id="veteranStatus">
+              <option value="">— Select —</option><option>Not a veteran</option><option>Veteran</option><option>Prefer not to say</option>
+            </select>
+          </div>
+          <div class="group">
+            <label>Disability</label>
+            <select id="disability">
+              <option value="">— Select —</option><option>No</option><option>Yes</option><option>Prefer not to say</option>
+            </select>
+          </div>
+          <div class="group">
+            <label>Ethnicity</label>
+            <select id="ethnicity">
+              <option value="">— Select —</option>
+              <option>Asian</option><option>Black or African American</option><option>Hispanic or Latino</option>
+              <option>White</option><option>Native American</option><option>Pacific Islander</option>
+              <option>Two or more races</option><option>Prefer not to say</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cover Letter -->
+      <div class="card">
+        <h2>✉️ Default Cover Letter</h2>
+        <div class="small" style="margin-bottom:8px">Used as a starting point when applications ask "Why are you a good fit?"</div>
+        <textarea id="coverLetter" placeholder="Write a default cover letter or motivation statement…"></textarea>
+      </div>
+
+      <!-- Custom answers learned from forms -->
+      <div class="card" id="customAnswersCard" style="display:none">
+        <h2>🧠 Saved answers from past applications</h2>
+        <div class="small" style="margin-bottom:12px">Whenever AutoApply isn't confident about a field, you'll see a popup to answer it. Those answers are saved here and reused on future forms. Edit or delete any of them below.</div>
+        <div id="customAnswersList"></div>
+      </div>
+
+      <div class="actions">
+        <button id="btnSave" class="btn btn-primary">💾 Save changes</button>
+      </div>
+
+      <div class="card" style="border:1px solid #FCA5A5;background:#FEF2F2;margin-top:24px">
+        <h2 style="color:#B91C1C">⚠️ Delete account</h2>
+        <div class="small" style="margin-bottom:12px;color:#7F1D1D">
+          Permanently delete your AutoApply account, profile, uploaded resumes,
+          and saved answers. This cannot be undone.
+        </div>
+        <button id="btnDeleteAccount" class="btn"
+                style="background:#DC2626;color:#fff;border:none">
+          Delete my account
+        </button>
+      </div>
+
+      <div style="height:40px"></div>
+    </div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

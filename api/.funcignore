@@ -1,0 +1,12 @@
+.git*
+.vscode
+__pycache__
+*.pyc
+.pytest_cache
+.venv*
+local.settings.json
+tests/
+eval/
+*.log
+*.bak*
+last_response.json

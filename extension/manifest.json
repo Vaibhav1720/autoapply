@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "default_locale": "en",
+  "name": "__MSG_extName__",
+  "version": "1.7.0",
+  "description": "__MSG_extShortDescription__",
+  "homepage_url": "https://mango-ocean-0f1de6810.2.azurestaticapps.net",
+  "permissions": ["activeTab", "storage", "scripting", "identity"],
+  "host_permissions": [
+    "https://autoapply-func-dev.azurewebsites.net/*",
+    "https://autoapply-func-dev.azurewebsites.net/*",
+    "https://*.greenhouse.io/*",
+    "https://boards.greenhouse.io/*",
+    "https://*.lever.co/*",
+    "https://*.myworkdayjobs.com/*",
+    "https://*.ashbyhq.com/*",
+    "https://*.workable.com/*",
+    "https://*.smartrecruiters.com/*",
+    "https://*.icims.com/*",
+    "https://*.eightfold.ai/*",
+    "https://*.netflix.net/*",
+    "https://jobs.lever.co/*",
+    "https://apply.workable.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

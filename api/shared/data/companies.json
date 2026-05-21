@@ -1,0 +1,1395 @@
+{
+  "_comment": "Phase 5 — Companies registry. Each entry mirrors the in-memory COMPANIES dict plus an `ats` field for routing. Generated once by shared/_migrate_companies_to_json.py. After this point the JSON is the source of truth; edit it, not the python dict.",
+  "companies": {
+    "comp-amazon": {
+      "id": "comp-amazon",
+      "name": "Amazon",
+      "industry": "Technology",
+      "careersUrl": "https://www.amazon.jobs/en/search",
+      "searchUrl": "https://www.amazon.jobs/en/search?base_query={query}",
+      "description": "E-commerce, AWS cloud, Alexa, logistics, and streaming.",
+      "ats": "amazon"
+    },
+    "comp-uber": {
+      "id": "comp-uber",
+      "name": "Uber",
+      "industry": "Technology",
+      "careersUrl": "https://www.uber.com/us/en/careers/list/",
+      "searchUrl": "https://www.uber.com/us/en/careers/list/?query={query}",
+      "description": "Rides, delivery, freight, and autonomous driving platform.",
+      "ats": "uber"
+    },
+    "comp-netflix": {
+      "id": "comp-netflix",
+      "name": "Netflix",
+      "industry": "Entertainment",
+      "careersUrl": "https://explore.jobs.netflix.net/careers",
+      "searchUrl": "https://explore.jobs.netflix.net/careers?query={query}",
+      "description": "Streaming, content production, and recommendation AI.",
+      "ats": "netflix"
+    },
+    "comp-stripe": {
+      "id": "comp-stripe",
+      "name": "Stripe",
+      "industry": "Fintech",
+      "careersUrl": "https://stripe.com/jobs/search",
+      "searchUrl": "https://stripe.com/jobs/search?query={query}",
+      "description": "Payment infrastructure, financial APIs, and billing.",
+      "ats": "stripe"
+    },
+    "comp-google": {
+      "id": "comp-google",
+      "name": "Google",
+      "industry": "Technology",
+      "careersUrl": "https://www.google.com/about/careers/applications/jobs/results/",
+      "searchUrl": "https://www.google.com/about/careers/applications/jobs/results/?q={query}",
+      "description": "Search, cloud, AI, Android, and advertising.",
+      "ats": "google"
+    },
+    "comp-microsoft": {
+      "id": "comp-microsoft",
+      "name": "Microsoft",
+      "industry": "Technology",
+      "careersUrl": "https://jobs.careers.microsoft.com/global/en/search",
+      "searchUrl": "https://jobs.careers.microsoft.com/global/en/search?q={query}",
+      "description": "Cloud (Azure), Office 365, Windows, Xbox, and Copilot.",
+      "ats": "microsoft",
+      "linkedinId": "1035"
+    },
+    "comp-meta": {
+      "id": "comp-meta",
+      "name": "Meta",
+      "industry": "Technology",
+      "careersUrl": "https://www.metacareers.com/jobs/",
+      "searchUrl": "https://www.metacareers.com/jobs/?query={query}",
+      "description": "Facebook, Instagram, WhatsApp, and AI research.",
+      "ats": "meta",
+      "linkedinId": "10667"
+    },
+    "comp-apple": {
+      "id": "comp-apple",
+      "name": "Apple",
+      "industry": "Technology",
+      "careersUrl": "https://jobs.apple.com/en-us/search",
+      "searchUrl": "https://jobs.apple.com/en-us/search?search={query}",
+      "description": "iPhone, Mac, iOS, Apple Intelligence, and services.",
+      "ats": "apple"
+    },
+    "comp-salesforce": {
+      "id": "comp-salesforce",
+      "name": "Salesforce",
+      "industry": "Enterprise Software",
+      "careersUrl": "https://careers.salesforce.com/en/jobs/",
+      "searchUrl": "https://careers.salesforce.com/en/jobs/?search={query}",
+      "description": "CRM, enterprise cloud, Slack, and Einstein AI.",
+      "ats": "salesforce"
+    },
+    "comp-adobe": {
+      "id": "comp-adobe",
+      "name": "Adobe",
+      "industry": "Creative Software",
+      "careersUrl": "https://careers.adobe.com/us/en/search-results",
+      "searchUrl": "https://careers.adobe.com/us/en/search-results?keywords={query}",
+      "description": "Creative Cloud, Photoshop, and Firefly AI.",
+      "ats": "adobe"
+    },
+    "comp-goldman": {
+      "id": "comp-goldman",
+      "name": "Goldman Sachs",
+      "industry": "Investment Banking",
+      "careersUrl": "https://higher.gs.com/roles",
+      "searchUrl": "https://higher.gs.com/roles?query={query}",
+      "description": "Investment banking, securities, asset management, and fintech.",
+      "ats": "goldman",
+      "linkedinId": "1382"
+    },
+    "comp-jpmorgan": {
+      "id": "comp-jpmorgan",
+      "name": "JPMorgan Chase",
+      "industry": "Banking",
+      "careersUrl": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/requisitions",
+      "searchUrl": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/requisitions?keyword={query}",
+      "description": "Global banking, payments, asset management, and technology.",
+      "ats": "jpmorgan",
+      "linkedinId": "1068"
+    },
+    "comp-morgan-stanley": {
+      "id": "comp-morgan-stanley",
+      "name": "Morgan Stanley",
+      "industry": "Investment Banking",
+      "careersUrl": "https://ms.taleo.net/careersection/2/jobsearch.ftl",
+      "searchUrl": "https://www.morganstanley.com/people-opportunities/search-jobs?keyword={query}",
+      "description": "Investment banking, wealth management, and institutional securities.",
+      "ats": "linkedin_only",
+      "linkedinId": "497017"
+    },
+    "comp-ubs": {
+      "id": "comp-ubs",
+      "name": "UBS",
+      "industry": "Banking",
+      "careersUrl": "https://jobs.ubs.com/TGnewUI/Search/Home/Home?partnerid=25008&siteid=5012",
+      "searchUrl": "https://jobs.ubs.com/TGnewUI/Search/Home/Home?partnerid=25008&siteid=5012#keyWordSearch={query}",
+      "description": "Wealth management, investment banking, and asset management.",
+      "ats": "linkedin_only",
+      "linkedinId": "1214"
+    },
+    "comp-barclays": {
+      "id": "comp-barclays",
+      "name": "Barclays",
+      "industry": "Banking",
+      "careersUrl": "https://search.jobs.barclays/search-jobs/engineer",
+      "searchUrl": "https://search.jobs.barclays/search-jobs/{query}",
+      "description": "Consumer banking, corporate banking, and investment banking.",
+      "ats": "barclays"
+    },
+    "comp-citi": {
+      "id": "comp-citi",
+      "name": "Citibank",
+      "industry": "Banking",
+      "careersUrl": "https://jobs.citi.com/search-jobs/engineer",
+      "searchUrl": "https://jobs.citi.com/search-jobs/{query}",
+      "description": "Global banking, markets, consumer banking, and technology.",
+      "ats": "citi"
+    },
+    "comp-hsbc": {
+      "id": "comp-hsbc",
+      "name": "HSBC",
+      "industry": "Banking",
+      "careersUrl": "https://mycareer.hsbc.com/en_GB/external/SearchJobs",
+      "searchUrl": "https://mycareer.hsbc.com/en_GB/external/SearchJobs?keywords={query}",
+      "description": "Commercial banking, global banking, and wealth management.",
+      "ats": "linkedin_only",
+      "linkedinId": "1344"
+    },
+    "comp-deutsche": {
+      "id": "comp-deutsche",
+      "name": "Deutsche Bank",
+      "industry": "Banking",
+      "careersUrl": "https://careers.db.com/professionals/search-roles/",
+      "searchUrl": "https://careers.db.com/professionals/search-roles/#/professional/results?query={query}",
+      "description": "Investment banking, corporate banking, and asset management.",
+      "ats": "linkedin_only",
+      "linkedinId": "1262"
+    },
+    "comp-bofa": {
+      "id": "comp-bofa",
+      "name": "Bank of America",
+      "industry": "Banking",
+      "careersUrl": "https://careers.bankofamerica.com/en-us",
+      "searchUrl": "https://careers.bankofamerica.com/en-us/search-results?keywords={query}",
+      "description": "Consumer banking, wealth management, and corporate banking.",
+      "ats": "bofa",
+      "linkedinId": "1123"
+    },
+    "comp-airbnb": {
+      "id": "comp-airbnb",
+      "name": "Airbnb",
+      "industry": "Travel & Hospitality",
+      "careersUrl": "https://careers.airbnb.com/",
+      "searchUrl": "https://careers.airbnb.com/?search={query}",
+      "description": "Home-sharing marketplace, experiences, and travel platform.",
+      "ats": "greenhouse",
+      "atsBoard": "airbnb"
+    },
+    "comp-anthropic": {
+      "id": "comp-anthropic",
+      "name": "Anthropic",
+      "industry": "AI",
+      "careersUrl": "https://www.anthropic.com/careers",
+      "searchUrl": "https://www.anthropic.com/careers?q={query}",
+      "description": "AI safety lab — Claude family of large language models.",
+      "ats": "greenhouse",
+      "atsBoard": "anthropic"
+    },
+    "comp-asana": {
+      "id": "comp-asana",
+      "name": "Asana",
+      "industry": "Productivity Software",
+      "careersUrl": "https://asana.com/jobs/all",
+      "searchUrl": "https://asana.com/jobs/all?search={query}",
+      "description": "Work management platform for teams.",
+      "ats": "greenhouse",
+      "atsBoard": "asana"
+    },
+    "comp-cloudflare": {
+      "id": "comp-cloudflare",
+      "name": "Cloudflare",
+      "industry": "Networking & Security",
+      "careersUrl": "https://www.cloudflare.com/careers/jobs/",
+      "searchUrl": "https://www.cloudflare.com/careers/jobs/?q={query}",
+      "description": "CDN, edge compute, DNS, Zero Trust security.",
+      "ats": "greenhouse",
+      "atsBoard": "cloudflare"
+    },
+    "comp-databricks": {
+      "id": "comp-databricks",
+      "name": "Databricks",
+      "industry": "Data & AI",
+      "careersUrl": "https://www.databricks.com/company/careers/open-positions",
+      "searchUrl": "https://www.databricks.com/company/careers/open-positions?keyword={query}",
+      "description": "Lakehouse data platform, MLflow, and Mosaic AI.",
+      "ats": "greenhouse",
+      "atsBoard": "databricks"
+    },
+    "comp-discord": {
+      "id": "comp-discord",
+      "name": "Discord",
+      "industry": "Communication",
+      "careersUrl": "https://discord.com/jobs",
+      "searchUrl": "https://discord.com/jobs?q={query}",
+      "description": "Voice, video, and text chat platform for communities.",
+      "ats": "greenhouse",
+      "atsBoard": "discord"
+    },
+    "comp-dropbox": {
+      "id": "comp-dropbox",
+      "name": "Dropbox",
+      "industry": "Productivity Software",
+      "careersUrl": "https://jobs.dropbox.com/all-jobs",
+      "searchUrl": "https://jobs.dropbox.com/all-jobs?q={query}",
+      "description": "Cloud storage, sync, and collaboration tools.",
+      "ats": "greenhouse",
+      "atsBoard": "dropbox"
+    },
+    "comp-duolingo": {
+      "id": "comp-duolingo",
+      "name": "Duolingo",
+      "industry": "Education",
+      "careersUrl": "https://careers.duolingo.com/",
+      "searchUrl": "https://careers.duolingo.com/?q={query}",
+      "description": "Language-learning app with gamified lessons.",
+      "ats": "greenhouse",
+      "atsBoard": "duolingo"
+    },
+    "comp-figma": {
+      "id": "comp-figma",
+      "name": "Figma",
+      "industry": "Design Software",
+      "careersUrl": "https://www.figma.com/careers/",
+      "searchUrl": "https://www.figma.com/careers/?search={query}",
+      "description": "Collaborative interface design and prototyping.",
+      "ats": "greenhouse",
+      "atsBoard": "figma"
+    },
+    "comp-gitlab": {
+      "id": "comp-gitlab",
+      "name": "GitLab",
+      "industry": "Developer Tools",
+      "careersUrl": "https://about.gitlab.com/jobs/",
+      "searchUrl": "https://about.gitlab.com/jobs/?search={query}",
+      "description": "End-to-end DevOps platform and source control.",
+      "ats": "greenhouse",
+      "atsBoard": "gitlab"
+    },
+    "comp-gusto": {
+      "id": "comp-gusto",
+      "name": "Gusto",
+      "industry": "HR Tech",
+      "careersUrl": "https://gusto.com/about/careers/jobs",
+      "searchUrl": "https://gusto.com/about/careers/jobs?q={query}",
+      "description": "Payroll, benefits, and HR for small businesses.",
+      "ats": "greenhouse",
+      "atsBoard": "gusto"
+    },
+    "comp-instacart": {
+      "id": "comp-instacart",
+      "name": "Instacart",
+      "industry": "Grocery Delivery",
+      "careersUrl": "https://instacart.careers/",
+      "searchUrl": "https://instacart.careers/?q={query}",
+      "description": "Grocery delivery and pickup marketplace.",
+      "ats": "greenhouse",
+      "atsBoard": "instacart"
+    },
+    "comp-lyft": {
+      "id": "comp-lyft",
+      "name": "Lyft",
+      "industry": "Transportation",
+      "careersUrl": "https://www.lyft.com/careers",
+      "searchUrl": "https://www.lyft.com/careers?q={query}",
+      "description": "Ridesharing, bikes, scooters, and autonomous mobility.",
+      "ats": "greenhouse",
+      "atsBoard": "lyft"
+    },
+    "comp-mongodb": {
+      "id": "comp-mongodb",
+      "name": "MongoDB",
+      "industry": "Databases",
+      "careersUrl": "https://www.mongodb.com/careers",
+      "searchUrl": "https://www.mongodb.com/careers?search={query}",
+      "description": "Document database and Atlas cloud platform.",
+      "ats": "greenhouse",
+      "atsBoard": "mongodb"
+    },
+    "comp-pinterest": {
+      "id": "comp-pinterest",
+      "name": "Pinterest",
+      "industry": "Social Media",
+      "careersUrl": "https://www.pinterestcareers.com/jobs/",
+      "searchUrl": "https://www.pinterestcareers.com/jobs/?keywords={query}",
+      "description": "Visual discovery and inspiration platform.",
+      "ats": "greenhouse",
+      "atsBoard": "pinterest"
+    },
+    "comp-reddit": {
+      "id": "comp-reddit",
+      "name": "Reddit",
+      "industry": "Social Media",
+      "careersUrl": "https://www.redditinc.com/careers",
+      "searchUrl": "https://www.redditinc.com/careers?q={query}",
+      "description": "Front page of the internet — community-driven discussions.",
+      "ats": "greenhouse",
+      "atsBoard": "reddit"
+    },
+    "comp-robinhood": {
+      "id": "comp-robinhood",
+      "name": "Robinhood",
+      "industry": "Fintech",
+      "careersUrl": "https://careers.robinhood.com/",
+      "searchUrl": "https://careers.robinhood.com/?q={query}",
+      "description": "Commission-free trading, crypto, and retirement.",
+      "ats": "greenhouse",
+      "atsBoard": "robinhood"
+    },
+    "comp-scaleai": {
+      "id": "comp-scaleai",
+      "name": "Scale AI",
+      "industry": "AI",
+      "careersUrl": "https://scale.com/careers",
+      "searchUrl": "https://scale.com/careers?q={query}",
+      "description": "Data labeling and evaluation infrastructure for AI.",
+      "ats": "greenhouse",
+      "atsBoard": "scaleai"
+    },
+    "comp-twilio": {
+      "id": "comp-twilio",
+      "name": "Twilio",
+      "industry": "Communications",
+      "careersUrl": "https://www.twilio.com/en-us/company/jobs",
+      "searchUrl": "https://www.twilio.com/en-us/company/jobs?keyword={query}",
+      "description": "Programmable messaging, voice, and customer engagement.",
+      "ats": "greenhouse",
+      "atsBoard": "twilio"
+    },
+    "comp-vercel": {
+      "id": "comp-vercel",
+      "name": "Vercel",
+      "industry": "Developer Tools",
+      "careersUrl": "https://vercel.com/careers",
+      "searchUrl": "https://vercel.com/careers?search={query}",
+      "description": "Front-end cloud — Next.js framework and edge platform.",
+      "ats": "greenhouse",
+      "atsBoard": "vercel"
+    },
+    "comp-cohere": {
+      "id": "comp-cohere",
+      "name": "Cohere",
+      "industry": "AI",
+      "careersUrl": "https://cohere.com/careers",
+      "searchUrl": "https://cohere.com/careers?q={query}",
+      "description": "Enterprise LLM platform and embedding models.",
+      "ats": "ashby",
+      "atsBoard": "cohere"
+    },
+    "comp-mistral": {
+      "id": "comp-mistral",
+      "name": "Mistral AI",
+      "industry": "AI",
+      "careersUrl": "https://mistral.ai/careers/",
+      "searchUrl": "https://mistral.ai/careers/?q={query}",
+      "description": "Open-weight large language models from Paris.",
+      "ats": "ashby",
+      "atsBoard": "mistral"
+    },
+    "comp-perplexity": {
+      "id": "comp-perplexity",
+      "name": "Perplexity",
+      "industry": "AI",
+      "careersUrl": "https://www.perplexity.ai/hub/careers",
+      "searchUrl": "https://www.perplexity.ai/hub/careers?q={query}",
+      "description": "Conversational answer engine.",
+      "ats": "ashby",
+      "atsBoard": "perplexity"
+    },
+    "comp-linear": {
+      "id": "comp-linear",
+      "name": "Linear",
+      "industry": "Developer Tools",
+      "careersUrl": "https://linear.app/careers",
+      "searchUrl": "https://linear.app/careers?q={query}",
+      "description": "Issue tracking and project management for software teams.",
+      "ats": "ashby",
+      "atsBoard": "linear"
+    },
+    "comp-supabase": {
+      "id": "comp-supabase",
+      "name": "Supabase",
+      "industry": "Developer Tools",
+      "careersUrl": "https://supabase.com/careers",
+      "searchUrl": "https://supabase.com/careers?q={query}",
+      "description": "Open-source Firebase alternative with Postgres.",
+      "ats": "ashby",
+      "atsBoard": "supabase"
+    },
+    "comp-posthog": {
+      "id": "comp-posthog",
+      "name": "PostHog",
+      "industry": "Developer Tools",
+      "careersUrl": "https://posthog.com/careers",
+      "searchUrl": "https://posthog.com/careers?q={query}",
+      "description": "Open-source product analytics and feature flags.",
+      "ats": "ashby",
+      "atsBoard": "posthog"
+    },
+    "comp-ramp": {
+      "id": "comp-ramp",
+      "name": "Ramp",
+      "industry": "Fintech",
+      "careersUrl": "https://ramp.com/careers",
+      "searchUrl": "https://ramp.com/careers?q={query}",
+      "description": "Corporate cards and finance automation.",
+      "ats": "ashby",
+      "atsBoard": "ramp"
+    },
+    "comp-writer": {
+      "id": "comp-writer",
+      "name": "Writer",
+      "industry": "AI",
+      "careersUrl": "https://writer.com/careers/",
+      "searchUrl": "https://writer.com/careers/?q={query}",
+      "description": "Generative AI platform for the enterprise.",
+      "ats": "ashby",
+      "atsBoard": "writer"
+    },
+    "comp-decagon": {
+      "id": "comp-decagon",
+      "name": "Decagon",
+      "industry": "AI",
+      "careersUrl": "https://decagon.ai/careers",
+      "searchUrl": "https://decagon.ai/careers?q={query}",
+      "description": "AI customer service agents for enterprises.",
+      "ats": "ashby",
+      "atsBoard": "decagon"
+    },
+    "comp-cred": {
+      "id": "comp-cred",
+      "name": "CRED",
+      "industry": "Fintech",
+      "careersUrl": "https://jobs.lever.co/cred",
+      "searchUrl": "https://jobs.lever.co/cred?search={query}",
+      "description": "Credit-card payments, rewards, and lending in India.",
+      "ats": "lever",
+      "atsBoard": "cred"
+    },
+    "comp-razorpay": {
+      "id": "comp-razorpay",
+      "name": "Razorpay",
+      "industry": "Fintech",
+      "careersUrl": "https://razorpay.com/jobs/jobs-overview/",
+      "searchUrl": "https://razorpay.com/jobs/jobs-overview/?search={query}",
+      "description": "Payments and banking platform for Indian businesses.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-phonepe": {
+      "id": "comp-phonepe",
+      "name": "PhonePe",
+      "industry": "Fintech",
+      "careersUrl": "https://www.phonepe.com/careers/",
+      "searchUrl": "https://www.phonepe.com/careers/job-openings/?search={query}",
+      "description": "India's largest UPI-based payments app.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-paytm": {
+      "id": "comp-paytm",
+      "name": "Paytm",
+      "industry": "Fintech",
+      "careersUrl": "https://paytm.com/careers",
+      "searchUrl": "https://paytm.com/careers?search={query}",
+      "description": "Indian digital payments and financial services.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-swiggy": {
+      "id": "comp-swiggy",
+      "name": "Swiggy",
+      "industry": "Foodtech",
+      "careersUrl": "https://careers.swiggy.com/",
+      "searchUrl": "https://careers.swiggy.com/?search={query}",
+      "description": "Food delivery and quick commerce (Instamart) in India.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-zomato": {
+      "id": "comp-zomato",
+      "name": "Zomato",
+      "industry": "Foodtech",
+      "careersUrl": "https://www.zomato.com/careers",
+      "searchUrl": "https://www.zomato.com/careers?search={query}",
+      "description": "Food delivery, restaurant discovery, Blinkit quick commerce.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-flipkart": {
+      "id": "comp-flipkart",
+      "name": "Flipkart",
+      "industry": "E-commerce",
+      "careersUrl": "https://www.flipkartcareers.com/",
+      "searchUrl": "https://www.flipkartcareers.com/?search={query}",
+      "description": "Walmart-owned Indian e-commerce leader.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-meesho": {
+      "id": "comp-meesho",
+      "name": "Meesho",
+      "industry": "E-commerce",
+      "careersUrl": "https://www.meesho.io/careers",
+      "searchUrl": "https://www.meesho.io/careers?search={query}",
+      "description": "Social commerce platform connecting Indian resellers and SMBs.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-zepto": {
+      "id": "comp-zepto",
+      "name": "Zepto",
+      "industry": "Quick Commerce",
+      "careersUrl": "https://www.zeptonow.com/careers",
+      "searchUrl": "https://www.zeptonow.com/careers?search={query}",
+      "description": "10-minute grocery delivery across Indian metros.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-ola": {
+      "id": "comp-ola",
+      "name": "Ola",
+      "industry": "Mobility",
+      "careersUrl": "https://www.olacabs.com/careers",
+      "searchUrl": "https://www.olacabs.com/careers?search={query}",
+      "description": "Indian ride-hailing and mobility platform.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-ola-electric": {
+      "id": "comp-ola-electric",
+      "name": "Ola Electric",
+      "industry": "EV",
+      "careersUrl": "https://www.olaelectric.com/careers",
+      "searchUrl": "https://www.olaelectric.com/careers?search={query}",
+      "description": "Electric two-wheeler and battery manufacturing.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-nykaa": {
+      "id": "comp-nykaa",
+      "name": "Nykaa",
+      "industry": "E-commerce",
+      "careersUrl": "https://www.nykaa.com/careers",
+      "searchUrl": "https://www.nykaa.com/careers?search={query}",
+      "description": "Indian beauty and lifestyle e-commerce.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-groww": {
+      "id": "comp-groww",
+      "name": "Groww",
+      "industry": "Fintech",
+      "careersUrl": "https://groww.in/careers",
+      "searchUrl": "https://groww.in/careers?search={query}",
+      "description": "Indian retail investing and broking platform.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-zerodha": {
+      "id": "comp-zerodha",
+      "name": "Zerodha",
+      "industry": "Fintech",
+      "careersUrl": "https://zerodha.com/careers/",
+      "searchUrl": "https://zerodha.com/careers/?search={query}",
+      "description": "India's largest discount broker.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-upstox": {
+      "id": "comp-upstox",
+      "name": "Upstox",
+      "industry": "Fintech",
+      "careersUrl": "https://upstox.com/careers/",
+      "searchUrl": "https://upstox.com/careers/?search={query}",
+      "description": "Indian online discount broker and investing platform.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-jupiter": {
+      "id": "comp-jupiter",
+      "name": "Jupiter Money",
+      "industry": "Fintech",
+      "careersUrl": "https://jobs.lever.co/jupiter",
+      "searchUrl": "https://jobs.lever.co/jupiter?search={query}",
+      "description": "Neo-banking platform for Indian consumers.",
+      "ats": "lever",
+      "atsBoard": "jupiter"
+    },
+    "comp-slice": {
+      "id": "comp-slice",
+      "name": "Slice",
+      "industry": "Fintech",
+      "careersUrl": "https://www.sliceit.com/careers",
+      "searchUrl": "https://www.sliceit.com/careers?search={query}",
+      "description": "Credit card and payments fintech for young India.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-dream11": {
+      "id": "comp-dream11",
+      "name": "Dream11",
+      "industry": "Gaming",
+      "careersUrl": "https://www.dream11.com/careers",
+      "searchUrl": "https://www.dream11.com/careers?search={query}",
+      "description": "India's largest fantasy sports platform.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-urban-company": {
+      "id": "comp-urban-company",
+      "name": "Urban Company",
+      "industry": "Marketplace",
+      "careersUrl": "https://www.urbancompany.com/careers",
+      "searchUrl": "https://www.urbancompany.com/careers?search={query}",
+      "description": "At-home services marketplace across India and MENA.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-sharechat": {
+      "id": "comp-sharechat",
+      "name": "ShareChat",
+      "industry": "Social Media",
+      "careersUrl": "https://sharechat.com/careers",
+      "searchUrl": "https://sharechat.com/careers?search={query}",
+      "description": "Indian-language social media and short-video (Moj).",
+      "ats": "linkedin_by_name"
+    },
+    "comp-byjus": {
+      "id": "comp-byjus",
+      "name": "BYJU'S",
+      "industry": "Edtech",
+      "careersUrl": "https://byjus.com/careers/",
+      "searchUrl": "https://byjus.com/careers/?search={query}",
+      "description": "Edtech learning platform for K-12 and competitive exams.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-unacademy": {
+      "id": "comp-unacademy",
+      "name": "Unacademy",
+      "industry": "Edtech",
+      "careersUrl": "https://unacademy.com/careers",
+      "searchUrl": "https://unacademy.com/careers?search={query}",
+      "description": "Indian online learning and test-prep platform.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-policybazaar": {
+      "id": "comp-policybazaar",
+      "name": "PolicyBazaar",
+      "industry": "Insurtech",
+      "careersUrl": "https://www.policybazaar.com/careers/",
+      "searchUrl": "https://www.policybazaar.com/careers/?search={query}",
+      "description": "Online insurance comparison and aggregation.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-postman": {
+      "id": "comp-postman",
+      "name": "Postman",
+      "industry": "DevTools",
+      "careersUrl": "https://www.postman.com/company/careers/",
+      "searchUrl": "https://www.postman.com/company/careers/?search={query}",
+      "description": "API platform used by 30M+ developers.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-freshworks": {
+      "id": "comp-freshworks",
+      "name": "Freshworks",
+      "industry": "SaaS",
+      "careersUrl": "https://www.freshworks.com/company/careers/",
+      "searchUrl": "https://www.freshworks.com/company/careers/?search={query}",
+      "description": "Customer engagement and IT service software.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-zoho": {
+      "id": "comp-zoho",
+      "name": "Zoho",
+      "industry": "SaaS",
+      "careersUrl": "https://www.zoho.com/careers/",
+      "searchUrl": "https://www.zoho.com/careers/?search={query}",
+      "description": "Bootstrapped SaaS suite for businesses.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-browserstack": {
+      "id": "comp-browserstack",
+      "name": "BrowserStack",
+      "industry": "DevTools",
+      "careersUrl": "https://www.browserstack.com/careers",
+      "searchUrl": "https://www.browserstack.com/careers?search={query}",
+      "description": "Cross-browser and device testing cloud.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-chargebee": {
+      "id": "comp-chargebee",
+      "name": "Chargebee",
+      "industry": "SaaS",
+      "careersUrl": "https://www.chargebee.com/careers/",
+      "searchUrl": "https://www.chargebee.com/careers/?search={query}",
+      "description": "Subscription billing and revenue ops platform.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-thoughtspot": {
+      "id": "comp-thoughtspot",
+      "name": "ThoughtSpot",
+      "industry": "Analytics",
+      "careersUrl": "https://www.thoughtspot.com/company/careers",
+      "searchUrl": "https://www.thoughtspot.com/company/careers?search={query}",
+      "description": "AI-powered analytics and BI platform.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-gainsight": {
+      "id": "comp-gainsight",
+      "name": "Gainsight",
+      "industry": "SaaS",
+      "careersUrl": "https://www.gainsight.com/careers/",
+      "searchUrl": "https://www.gainsight.com/careers/?search={query}",
+      "description": "Customer success and product experience software.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-icertis": {
+      "id": "comp-icertis",
+      "name": "Icertis",
+      "industry": "SaaS",
+      "careersUrl": "https://www.icertis.com/company/careers/",
+      "searchUrl": "https://www.icertis.com/company/careers/?search={query}",
+      "description": "Enterprise contract lifecycle management on Azure.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-druva": {
+      "id": "comp-druva",
+      "name": "Druva",
+      "industry": "SaaS",
+      "careersUrl": "https://www.druva.com/careers",
+      "searchUrl": "https://www.druva.com/careers?search={query}",
+      "description": "SaaS data protection and management.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-tcs": {
+      "id": "comp-tcs",
+      "name": "Tata Consultancy Services",
+      "industry": "IT Services",
+      "careersUrl": "https://www.tcs.com/careers",
+      "searchUrl": "https://www.tcs.com/careers?search={query}",
+      "description": "India's largest IT services and consulting firm.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-infosys": {
+      "id": "comp-infosys",
+      "name": "Infosys",
+      "industry": "IT Services",
+      "careersUrl": "https://www.infosys.com/careers/",
+      "searchUrl": "https://www.infosys.com/careers/?search={query}",
+      "description": "Global IT, consulting and outsourcing services.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-wipro": {
+      "id": "comp-wipro",
+      "name": "Wipro",
+      "industry": "IT Services",
+      "careersUrl": "https://careers.wipro.com/",
+      "searchUrl": "https://careers.wipro.com/?search={query}",
+      "description": "IT, consulting and business process services.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-hcltech": {
+      "id": "comp-hcltech",
+      "name": "HCLTech",
+      "industry": "IT Services",
+      "careersUrl": "https://www.hcltech.com/careers",
+      "searchUrl": "https://www.hcltech.com/careers?search={query}",
+      "description": "Global IT services & engineering R&D.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-tech-mahindra": {
+      "id": "comp-tech-mahindra",
+      "name": "Tech Mahindra",
+      "industry": "IT Services",
+      "careersUrl": "https://careers.techmahindra.com/",
+      "searchUrl": "https://careers.techmahindra.com/?search={query}",
+      "description": "Digital transformation and consulting.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-cognizant": {
+      "id": "comp-cognizant",
+      "name": "Cognizant",
+      "industry": "IT Services",
+      "careersUrl": "https://careers.cognizant.com/global-en",
+      "searchUrl": "https://careers.cognizant.com/global-en/jobs/?search={query}",
+      "description": "Professional services and IT consulting.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-capgemini": {
+      "id": "comp-capgemini",
+      "name": "Capgemini",
+      "industry": "IT Services",
+      "careersUrl": "https://www.capgemini.com/careers/",
+      "searchUrl": "https://www.capgemini.com/careers/?search={query}",
+      "description": "Global consulting, technology and outsourcing.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-accenture": {
+      "id": "comp-accenture",
+      "name": "Accenture",
+      "industry": "IT Services",
+      "careersUrl": "https://www.accenture.com/in-en/careers",
+      "searchUrl": "https://www.accenture.com/in-en/careers?search={query}",
+      "description": "Global professional services in strategy, consulting, technology.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-ltimindtree": {
+      "id": "comp-ltimindtree",
+      "name": "LTIMindtree",
+      "industry": "IT Services",
+      "careersUrl": "https://www.ltimindtree.com/careers/",
+      "searchUrl": "https://www.ltimindtree.com/careers/?search={query}",
+      "description": "L&T-group digital and technology services.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-persistent": {
+      "id": "comp-persistent",
+      "name": "Persistent Systems",
+      "industry": "IT Services",
+      "careersUrl": "https://www.persistent.com/careers/",
+      "searchUrl": "https://www.persistent.com/careers/?search={query}",
+      "description": "Digital engineering and product development.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-mphasis": {
+      "id": "comp-mphasis",
+      "name": "Mphasis",
+      "industry": "IT Services",
+      "careersUrl": "https://www.mphasis.com/home/careers.html",
+      "searchUrl": "https://www.mphasis.com/home/careers.html?search={query}",
+      "description": "Cloud and cognitive IT services.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-genpact": {
+      "id": "comp-genpact",
+      "name": "Genpact",
+      "industry": "BPM",
+      "careersUrl": "https://www.genpact.com/careers",
+      "searchUrl": "https://www.genpact.com/careers?search={query}",
+      "description": "Global professional services in digital ops, AI, analytics.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-walmart-tech": {
+      "id": "comp-walmart-tech",
+      "name": "Walmart Global Tech",
+      "industry": "E-commerce",
+      "careersUrl": "https://careers.walmart.com/",
+      "searchUrl": "https://careers.walmart.com/results?search={query}",
+      "description": "Walmart's global tech org with major Bengaluru / Chennai presence.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-target-india": {
+      "id": "comp-target-india",
+      "name": "Target India",
+      "industry": "Retail Tech",
+      "careersUrl": "https://corporate.target.com/careers",
+      "searchUrl": "https://corporate.target.com/careers/job-search?search={query}",
+      "description": "Target's tech and analytics centre in Bengaluru.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-amex-india": {
+      "id": "comp-amex-india",
+      "name": "American Express India",
+      "industry": "Fintech",
+      "careersUrl": "https://aexp.eightfold.ai/careers",
+      "searchUrl": "https://aexp.eightfold.ai/careers?search={query}",
+      "description": "Amex tech and analytics hub in India.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-wells-fargo": {
+      "id": "comp-wells-fargo",
+      "name": "Wells Fargo India",
+      "industry": "Banking",
+      "careersUrl": "https://www.wellsfargojobs.com/",
+      "searchUrl": "https://www.wellsfargojobs.com/jobs/?search={query}",
+      "description": "Wells Fargo's enterprise global services in India.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-nvidia": {
+      "id": "comp-nvidia",
+      "name": "NVIDIA",
+      "industry": "Semiconductors",
+      "careersUrl": "https://www.nvidia.com/en-us/about-nvidia/careers/",
+      "searchUrl": "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite?search={query}",
+      "description": "GPUs, AI and accelerated computing — large Bengaluru / Pune R&D.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-qualcomm": {
+      "id": "comp-qualcomm",
+      "name": "Qualcomm",
+      "industry": "Semiconductors",
+      "careersUrl": "https://careers.qualcomm.com/",
+      "searchUrl": "https://careers.qualcomm.com/careers?search={query}",
+      "description": "Wireless and chipset design — major Hyderabad / Bengaluru centre.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-intel": {
+      "id": "comp-intel",
+      "name": "Intel",
+      "industry": "Semiconductors",
+      "careersUrl": "https://www.intel.com/content/www/us/en/jobs/jobs-at-intel.html",
+      "searchUrl": "https://jobs.intel.com/en/search-jobs/?search={query}",
+      "description": "Semiconductors and platform engineering — large Bengaluru R&D.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-cisco": {
+      "id": "comp-cisco",
+      "name": "Cisco",
+      "industry": "Networking",
+      "careersUrl": "https://jobs.cisco.com/",
+      "searchUrl": "https://jobs.cisco.com/jobs/SearchJobs?search={query}",
+      "description": "Networking, security, collaboration — Bengaluru is a major site.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-oracle": {
+      "id": "comp-oracle",
+      "name": "Oracle",
+      "industry": "Enterprise Software",
+      "careersUrl": "https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/",
+      "searchUrl": "https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/jobs?search={query}",
+      "description": "Database, Oracle Cloud, applications — large India workforce.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-sap-labs": {
+      "id": "comp-sap-labs",
+      "name": "SAP Labs India",
+      "industry": "Enterprise Software",
+      "careersUrl": "https://jobs.sap.com/",
+      "searchUrl": "https://jobs.sap.com/search/?search={query}",
+      "description": "SAP's largest R&D lab outside Germany — Bengaluru.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-paypal": {
+      "id": "comp-paypal",
+      "name": "PayPal",
+      "industry": "Fintech",
+      "careersUrl": "https://www.paypal.com/us/jobs",
+      "searchUrl": "https://www.paypal.com/us/jobs?search={query}",
+      "description": "Global payments — Bengaluru / Chennai engineering.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-visa": {
+      "id": "comp-visa",
+      "name": "Visa",
+      "industry": "Fintech",
+      "careersUrl": "https://corporate.visa.com/en/careers.html",
+      "searchUrl": "https://corporate.visa.com/en/jobs/?search={query}",
+      "description": "Global payments network — large Bengaluru tech centre.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-mastercard": {
+      "id": "comp-mastercard",
+      "name": "Mastercard",
+      "industry": "Fintech",
+      "careersUrl": "https://careers.mastercard.com/",
+      "searchUrl": "https://careers.mastercard.com/us/en/search-results?search={query}",
+      "description": "Payments and data services — Pune / Vadodara / Gurugram tech centres.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-atlassian": {
+      "id": "comp-atlassian",
+      "name": "Atlassian",
+      "industry": "DevTools",
+      "careersUrl": "https://www.atlassian.com/company/careers",
+      "searchUrl": "https://www.atlassian.com/company/careers/all-jobs?search={query}",
+      "description": "Jira, Confluence, Bitbucket — Bengaluru is a major hub.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-servicenow": {
+      "id": "comp-servicenow",
+      "name": "ServiceNow",
+      "industry": "Enterprise Software",
+      "careersUrl": "https://careers.servicenow.com/",
+      "searchUrl": "https://careers.servicenow.com/en/jobs/?search={query}",
+      "description": "Digital workflow platform — Hyderabad / Bengaluru sites.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-booking": {
+      "id": "comp-booking",
+      "name": "Booking.com",
+      "industry": "Travel",
+      "careersUrl": "https://careers.booking.com/",
+      "searchUrl": "https://careers.booking.com/?search={query}",
+      "description": "Online travel — engineering presence in Bengaluru.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-sigmoid": {
+      "id": "comp-sigmoid",
+      "name": "Sigmoid",
+      "industry": "Analytics",
+      "careersUrl": "https://www.sigmoid.com/careers/",
+      "searchUrl": "https://www.sigmoid.com/careers/?search={query}",
+      "description": "Data engineering and AI services — Bengaluru HQ.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-tata-elxsi": {
+      "id": "comp-tata-elxsi",
+      "name": "Tata Elxsi",
+      "industry": "Engineering Services",
+      "careersUrl": "https://www.tataelxsi.com/careers",
+      "searchUrl": "https://www.tataelxsi.com/careers?search={query}",
+      "description": "Design-led engineering for automotive, media and healthcare.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-mu-sigma": {
+      "id": "comp-mu-sigma",
+      "name": "Mu Sigma",
+      "industry": "Analytics",
+      "careersUrl": "https://www.mu-sigma.com/careers",
+      "searchUrl": "https://www.mu-sigma.com/careers?search={query}",
+      "description": "Decision sciences and analytics — Bengaluru HQ.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-fractal": {
+      "id": "comp-fractal",
+      "name": "Fractal Analytics",
+      "industry": "Analytics",
+      "careersUrl": "https://fractal.ai/careers/",
+      "searchUrl": "https://fractal.ai/careers/?search={query}",
+      "description": "AI and analytics for Fortune 500 enterprises.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-tiger-analytics": {
+      "id": "comp-tiger-analytics",
+      "name": "Tiger Analytics",
+      "industry": "Analytics",
+      "careersUrl": "https://www.tigeranalytics.com/careers/",
+      "searchUrl": "https://www.tigeranalytics.com/careers/?search={query}",
+      "description": "Advanced analytics, data engineering and AI consulting.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-latentview": {
+      "id": "comp-latentview",
+      "name": "LatentView Analytics",
+      "industry": "Analytics",
+      "careersUrl": "https://www.latentview.com/careers/",
+      "searchUrl": "https://www.latentview.com/careers/?search={query}",
+      "description": "Data analytics, decision sciences and AI.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-tredence": {
+      "id": "comp-tredence",
+      "name": "Tredence",
+      "industry": "Analytics",
+      "careersUrl": "https://www.tredence.com/careers",
+      "searchUrl": "https://www.tredence.com/careers?search={query}",
+      "description": "Data science and AI engineering — Bengaluru.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-brillio": {
+      "id": "comp-brillio",
+      "name": "Brillio",
+      "industry": "IT Services",
+      "careersUrl": "https://www.brillio.com/careers/",
+      "searchUrl": "https://www.brillio.com/careers/?search={query}",
+      "description": "Digital technology consulting and engineering.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-coforge": {
+      "id": "comp-coforge",
+      "name": "Coforge",
+      "industry": "IT Services",
+      "careersUrl": "https://www.coforge.com/careers",
+      "searchUrl": "https://www.coforge.com/careers?search={query}",
+      "description": "Digital services for BFSI, travel and insurance.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-hexaware": {
+      "id": "comp-hexaware",
+      "name": "Hexaware Technologies",
+      "industry": "IT Services",
+      "careersUrl": "https://hexaware.com/careers/",
+      "searchUrl": "https://hexaware.com/careers/?search={query}",
+      "description": "Automation-led IT and BPO services.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-cyient": {
+      "id": "comp-cyient",
+      "name": "Cyient",
+      "industry": "Engineering Services",
+      "careersUrl": "https://www.cyient.com/careers",
+      "searchUrl": "https://www.cyient.com/careers?search={query}",
+      "description": "Engineering, manufacturing, geospatial and digital tech.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-kpit": {
+      "id": "comp-kpit",
+      "name": "KPIT Technologies",
+      "industry": "Engineering Services",
+      "careersUrl": "https://www.kpit.com/careers/",
+      "searchUrl": "https://www.kpit.com/careers/?search={query}",
+      "description": "Software-defined vehicle and mobility R&D.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-lnt-tech": {
+      "id": "comp-lnt-tech",
+      "name": "L&T Technology Services",
+      "industry": "Engineering Services",
+      "careersUrl": "https://www.ltts.com/careers",
+      "searchUrl": "https://www.ltts.com/careers?search={query}",
+      "description": "Pure-play engineering services across industries.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-birlasoft": {
+      "id": "comp-birlasoft",
+      "name": "Birlasoft",
+      "industry": "IT Services",
+      "careersUrl": "https://www.birlasoft.com/careers",
+      "searchUrl": "https://www.birlasoft.com/careers?search={query}",
+      "description": "Enterprise digital and IT services.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-zensar": {
+      "id": "comp-zensar",
+      "name": "Zensar Technologies",
+      "industry": "IT Services",
+      "careersUrl": "https://www.zensar.com/careers/",
+      "searchUrl": "https://www.zensar.com/careers/?search={query}",
+      "description": "Digital solutions and technology services.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-happiest-minds": {
+      "id": "comp-happiest-minds",
+      "name": "Happiest Minds",
+      "industry": "IT Services",
+      "careersUrl": "https://www.happiestminds.com/careers/",
+      "searchUrl": "https://www.happiestminds.com/careers/?search={query}",
+      "description": "Born-digital, born-agile mindful IT services.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-sasken": {
+      "id": "comp-sasken",
+      "name": "Sasken Technologies",
+      "industry": "Engineering Services",
+      "careersUrl": "https://www.sasken.com/careers",
+      "searchUrl": "https://www.sasken.com/careers?search={query}",
+      "description": "Product engineering for semiconductor, telecom and devices.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-hasura": {
+      "id": "comp-hasura",
+      "name": "Hasura",
+      "industry": "DevTools",
+      "careersUrl": "https://hasura.io/careers/",
+      "searchUrl": "https://hasura.io/careers/?search={query}",
+      "description": "Instant GraphQL API platform — Bengaluru and remote.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-clevertap": {
+      "id": "comp-clevertap",
+      "name": "CleverTap",
+      "industry": "SaaS",
+      "careersUrl": "https://clevertap.com/careers/",
+      "searchUrl": "https://clevertap.com/careers/?search={query}",
+      "description": "Customer engagement and retention platform.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-moengage": {
+      "id": "comp-moengage",
+      "name": "MoEngage",
+      "industry": "SaaS",
+      "careersUrl": "https://www.moengage.com/careers/",
+      "searchUrl": "https://www.moengage.com/careers/?search={query}",
+      "description": "AI-powered cross-channel customer engagement.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-whatfix": {
+      "id": "comp-whatfix",
+      "name": "Whatfix",
+      "industry": "SaaS",
+      "careersUrl": "https://whatfix.com/careers/",
+      "searchUrl": "https://whatfix.com/careers/?search={query}",
+      "description": "Digital adoption platform for enterprise apps.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-highradius": {
+      "id": "comp-highradius",
+      "name": "HighRadius",
+      "industry": "Fintech SaaS",
+      "careersUrl": "https://www.highradius.com/careers/",
+      "searchUrl": "https://www.highradius.com/careers/?search={query}",
+      "description": "Autonomous finance for order-to-cash and treasury.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-innovaccer": {
+      "id": "comp-innovaccer",
+      "name": "Innovaccer",
+      "industry": "Healthtech",
+      "careersUrl": "https://innovaccer.com/careers",
+      "searchUrl": "https://innovaccer.com/careers?search={query}",
+      "description": "Healthcare data platform and analytics.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-capillary": {
+      "id": "comp-capillary",
+      "name": "Capillary Technologies",
+      "industry": "SaaS",
+      "careersUrl": "https://www.capillarytech.com/careers/",
+      "searchUrl": "https://www.capillarytech.com/careers/?search={query}",
+      "description": "Loyalty and customer engagement SaaS.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-acko": {
+      "id": "comp-acko",
+      "name": "Acko",
+      "industry": "Insurtech",
+      "careersUrl": "https://www.acko.com/careers/",
+      "searchUrl": "https://www.acko.com/careers/?search={query}",
+      "description": "Digital-first general insurance for Indian consumers.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-bharatpe": {
+      "id": "comp-bharatpe",
+      "name": "BharatPe",
+      "industry": "Fintech",
+      "careersUrl": "https://bharatpe.com/careers",
+      "searchUrl": "https://bharatpe.com/careers?search={query}",
+      "description": "Payments and lending for Indian merchants.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-pinelabs": {
+      "id": "comp-pinelabs",
+      "name": "Pine Labs",
+      "industry": "Fintech",
+      "careersUrl": "https://www.pinelabs.com/careers",
+      "searchUrl": "https://www.pinelabs.com/careers?search={query}",
+      "description": "Merchant payments and prepaid issuance.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-niyo": {
+      "id": "comp-niyo",
+      "name": "Niyo",
+      "industry": "Fintech",
+      "careersUrl": "https://www.goniyo.com/careers/",
+      "searchUrl": "https://www.goniyo.com/careers/?search={query}",
+      "description": "Neo-banking for salaried and travelling consumers.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-rapido": {
+      "id": "comp-rapido",
+      "name": "Rapido",
+      "industry": "Mobility",
+      "careersUrl": "https://rapido.bike/careers",
+      "searchUrl": "https://rapido.bike/careers?search={query}",
+      "description": "Bike-taxi and ride-hailing across Indian cities.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-lenskart": {
+      "id": "comp-lenskart",
+      "name": "Lenskart",
+      "industry": "E-commerce",
+      "careersUrl": "https://careers.lenskart.com/",
+      "searchUrl": "https://careers.lenskart.com/?search={query}",
+      "description": "Omnichannel eyewear retailer with Asia-wide presence.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-boat": {
+      "id": "comp-boat",
+      "name": "boAt",
+      "industry": "Consumer Electronics",
+      "careersUrl": "https://www.boat-lifestyle.com/pages/careers",
+      "searchUrl": "https://www.boat-lifestyle.com/pages/careers?search={query}",
+      "description": "India's largest audio and wearables consumer brand.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-pw": {
+      "id": "comp-pw",
+      "name": "PhysicsWallah",
+      "industry": "Edtech",
+      "careersUrl": "https://www.pw.live/careers",
+      "searchUrl": "https://www.pw.live/careers?search={query}",
+      "description": "Affordable test-prep and online learning at scale.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-upgrad": {
+      "id": "comp-upgrad",
+      "name": "upGrad",
+      "industry": "Edtech",
+      "careersUrl": "https://www.upgrad.com/careers/",
+      "searchUrl": "https://www.upgrad.com/careers/?search={query}",
+      "description": "Higher education and upskilling for working professionals.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-makemytrip": {
+      "id": "comp-makemytrip",
+      "name": "MakeMyTrip",
+      "industry": "Travel",
+      "careersUrl": "https://careers.makemytrip.com/",
+      "searchUrl": "https://careers.makemytrip.com/?search={query}",
+      "description": "India's largest online travel company.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-blinkit": {
+      "id": "comp-blinkit",
+      "name": "Blinkit",
+      "industry": "Quick Commerce",
+      "careersUrl": "https://blinkit.com/careers",
+      "searchUrl": "https://blinkit.com/careers?search={query}",
+      "description": "10-minute grocery delivery (Zomato-owned).",
+      "ats": "linkedin_by_name"
+    },
+    "comp-1mg": {
+      "id": "comp-1mg",
+      "name": "Tata 1mg",
+      "industry": "Healthtech",
+      "careersUrl": "https://www.1mg.com/careers",
+      "searchUrl": "https://www.1mg.com/careers?search={query}",
+      "description": "Online pharmacy, diagnostics and tele-consultation.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-pharmeasy": {
+      "id": "comp-pharmeasy",
+      "name": "PharmEasy",
+      "industry": "Healthtech",
+      "careersUrl": "https://pharmeasy.in/careers",
+      "searchUrl": "https://pharmeasy.in/careers?search={query}",
+      "description": "E-pharmacy and diagnostics across India.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-cars24": {
+      "id": "comp-cars24",
+      "name": "Cars24",
+      "industry": "E-commerce",
+      "careersUrl": "https://www.cars24.com/careers/",
+      "searchUrl": "https://www.cars24.com/careers/?search={query}",
+      "description": "Used-car e-commerce and auto-financing.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-spinny": {
+      "id": "comp-spinny",
+      "name": "Spinny",
+      "industry": "E-commerce",
+      "careersUrl": "https://www.spinny.com/careers/",
+      "searchUrl": "https://www.spinny.com/careers/?search={query}",
+      "description": "Used-car retailer with 200-point inspection.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-snowflake": {
+      "id": "comp-snowflake",
+      "name": "Snowflake",
+      "industry": "Data Cloud",
+      "careersUrl": "https://careers.snowflake.com/us/en",
+      "searchUrl": "https://careers.snowflake.com/us/en/search-results?search={query}",
+      "description": "Cloud data platform — large Pune R&D presence.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-confluent": {
+      "id": "comp-confluent",
+      "name": "Confluent",
+      "industry": "Data Streaming",
+      "careersUrl": "https://careers.confluent.io/",
+      "searchUrl": "https://careers.confluent.io/jobs?search={query}",
+      "description": "Apache Kafka data streaming platform — Bengaluru hub.",
+      "ats": "linkedin_by_name"
+    },
+    "comp-lowes-india": {
+      "id": "comp-lowes-india",
+      "name": "Lowe's India",
+      "industry": "Retail Tech",
+      "careersUrl": "https://www.lowes.com/l/about/careers",
+      "searchUrl": "https://talent.lowes.com/us/en/search-results?search={query}",
+      "description": "Lowe's global tech and analytics centre in Bengaluru.",
+      "ats": "linkedin_by_name"
+    }
+  }
+}

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <script>
+    // Redirect default SWA hostname to custom domain
+    if (window.location.hostname === 'mango-ocean-0f1de6810.2.azurestaticapps.net') {
+      window.location.replace(
+        'https://autoapplynow.in' + window.location.pathname + window.location.search + window.location.hash
+      );
+    }
+  </script>
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="AutoApply finds and fills job applications for you. AI-powered job search across Amazon, Google, Microsoft, Uber and 40+ top companies. Upload your resume, get matched jobs, and auto-fill applications with one click.">
+  <meta name="keywords" content="job search, auto apply, job application autofill, AI job matching, career, resume, software engineer jobs, India jobs, remote jobs">
+  <meta name="author" content="AutoApply">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://autoapplynow.in/">
+
+  <!-- Open Graph (Facebook, LinkedIn) -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="AutoApply — AI Job Search & Auto-Fill">
+  <meta property="og:description" content="We find and apply for you. AI-ranked jobs from 40+ top companies. Upload your resume, get matched, auto-fill applications.">
+  <meta property="og:url" content="https://autoapplynow.in/">
+  <meta property="og:site_name" content="AutoApply">
+  <meta property="og:image" content="https://autoapplynow.in/icons/Icon-512.png">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="AutoApply — AI Job Search & Auto-Fill">
+  <meta name="twitter:description" content="We find and apply for you. AI-ranked jobs from top companies. One-click autofill.">
+  <meta name="twitter:image" content="https://autoapplynow.in/icons/Icon-512.png">
+
+  <!-- Structured Data (JSON-LD) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "AutoApply",
+    "url": "https://autoapplynow.in/",
+    "description": "AI-powered job search and application autofill. Find matching jobs at Amazon, Google, Microsoft, Uber and 40+ top companies, then auto-fill applications with your resume in one click.",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "browserRequirements": "Requires Chrome with AutoApply extension for autofill"
+  }
+  </script>
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="AutoApply">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>AutoApply — AI Job Search & Application Autofill</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Google Identity Services (for Sign in with Google) -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script>
+    // Bridge: Google credential callback. The Flutter app sets
+    // window.__autoApplyGoogleCallback before calling google.accounts.id.prompt().
+    window.handleGoogleCredentialResponse = function(resp) {
+      if (window.__autoApplyGoogleCallback) {
+        try { window.__autoApplyGoogleCallback(resp && resp.credential); } catch (e) { console.error(e); }
+      }
+    };
+  </script>
+
+  <!-- Disable the Flutter service worker entirely. Service workers were
+       causing users to be stuck on stale bundles for hours after every
+       deploy because previously-installed SW versions didn't honor
+       SKIP_WAITING messages. We unregister any existing SW, wipe all
+       caches it created, then reload the page once so the freshly
+       installed bundle is served straight from the network. -->
+  <script>
+    (function () {
+      if (!('serviceWorker' in navigator)) return;
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
+        if (!regs || regs.length === 0) return;
+        Promise.all(regs.map(function (r) {
+          try { return r.unregister(); } catch (e) { return Promise.resolve(); }
+        })).then(function () {
+          if (typeof caches !== 'undefined' && caches.keys) {
+            caches.keys().then(function (names) {
+              return Promise.all(names.map(function (n) { return caches.delete(n); }));
+            }).finally(function () {
+              if (!sessionStorage.getItem('__sw_killed_reload')) {
+                sessionStorage.setItem('__sw_killed_reload', '1');
+                window.location.reload();
+              }
+            });
+          } else if (!sessionStorage.getItem('__sw_killed_reload')) {
+            sessionStorage.setItem('__sw_killed_reload', '1');
+            window.location.reload();
+          }
+        });
+      });
+    })();
+  </script>
+</head>
+<body>
+  <!-- SEO: Crawlable content (hidden when Flutter loads, visible to search engines) -->
+  <noscript>
+    <h1>AutoApply — AI Job Search & Application Autofill</h1>
+    <p>AutoApply finds the best jobs for you across Amazon, Google, Microsoft, Uber, Netflix, Stripe, and 40+ top companies. Upload your resume, get AI-ranked matches, and auto-fill applications with one click using our Chrome extension.</p>
+    <h2>How it works</h2>
+    <ol>
+      <li>Sign in with Google and upload your resume</li>
+      <li>Select your target companies and job titles</li>
+      <li>AI scans thousands of jobs and ranks the best matches for your profile</li>
+      <li>Click "Apply with Autofill" to auto-fill application forms</li>
+    </ol>
+    <h2>Features</h2>
+    <ul>
+      <li>AI-powered job matching across 40+ top employers</li>
+      <li>LinkedIn job search with employer grouping</li>
+      <li>AI resume tailoring suggestions</li>
+      <li>Chrome extension for one-click application autofill</li>
+      <li>Support for Greenhouse, Lever, Workday, Ashby, and more ATS platforms</li>
+    </ul>
+    <p><a href="https://chromewebstore.google.com/detail/autoapply-%E2%80%93-job-form-auto/anjgpjhdecnibcbogkclafanemofndea">Get the Chrome Extension</a></p>
+  </noscript>
+  <div id="seo-content" style="position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;" aria-hidden="true">
+    <h1>AutoApply — AI Job Search & Application Autofill</h1>
+    <p>Find and apply to jobs at Amazon, Google, Microsoft, Uber, Netflix, Stripe, Meta, Apple, Salesforce, Adobe, Goldman Sachs, JPMorgan, Barclays, Citibank, Airbnb, Anthropic, Databricks, GitLab, MongoDB, Pinterest, Reddit, Robinhood, Scale AI, and more. AI-ranked job matching for software engineers, product managers, data scientists, designers, and finance professionals in India, USA, and remote.</p>
+    <p>Upload your resume. Get matched. Auto-fill applications. Free to use.</p>
+  </div>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

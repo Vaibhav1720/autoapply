@@ -1,0 +1,26 @@
+{
+  "_comment": "Non-secret deployment constants. Secrets stay in api/local.settings.json (gitignored) and Azure DevOps pipeline variables.",
+  "adminEmail": "vibhuu1720@gmail.com",
+  "googleClientId": "8017795829-np8cfekibbnfr960rfo6fqj6g8kl8dm1.apps.googleusercontent.com",
+  "functionAppName": "autoapply-func-dev",
+  "swaName": "autoapply-web-dev",
+  "resourceGroup": "rg-autoapply-dev",
+  "subscriptionId": "555ca7ca-d26b-4f89-917d-7981e5b4af57",
+  "tenantId": "9090726d-2786-4653-9d84-2cd402a7430a",
+  "apiBaseUrl": "https://autoapply-func-dev.azurewebsites.net",
+  "customDomain": "autoapplynow.in",
+  "corsOrigins": [
+    "https://autoapplynow.in",
+    "https://www.autoapplynow.in",
+    "https://mango-ocean-0f1de6810.2.azurestaticapps.net",
+    "http://localhost:3000",
+    "http://localhost:8080"
+  ],
+  "swaHost": "mango-ocean-0f1de6810.2.azurestaticapps.net",
+  "swaUrl": "https://mango-ocean-0f1de6810.2.azurestaticapps.net",
+  "cosmosAccount": "autoapply-cosmos-dev",
+  "cosmosEndpoint": "https://autoapply-cosmos-dev.documents.azure.com:443/",
+  "storageAccount": "autoapplystordev",
+  "aiResource": "autoapply-ai-dev",
+  "aiEndpoint": "https://autoapply-ai-dev.services.ai.azure.com/"
+}

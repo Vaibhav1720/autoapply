@@ -1,0 +1,30 @@
+{
+  "_comment": "Phase 6 — discipline anchor sentences. One short, prototypical sentence per discipline. Embedded at first use with text-embedding-3-small (1536-dim, cheap). Used as a fallback signal when the keyword tokens in disciplines.json miss a job title (e.g. a job named 'Software Specialist II'). Add new disciplines here; keep wording crisp and generic.",
+  "anchors": {
+    "frontend":   "Frontend web engineer building React, Angular, or Vue user interfaces with HTML, CSS, TypeScript.",
+    "backend":    "Backend server engineer building REST and gRPC APIs, microservices, databases, and distributed systems.",
+    "fullstack":  "Fullstack engineer building both frontend UI and backend APIs with end-to-end ownership.",
+    "mobile":     "Mobile engineer building Android (Kotlin) or iOS (Swift) apps, including React Native and Flutter.",
+    "ml":         "Machine learning engineer building model training, inference, MLOps pipelines with PyTorch or TensorFlow.",
+    "data":       "Data engineer building ETL pipelines, data warehousing, analytics with Airflow, Spark, dbt, Snowflake.",
+    "devops":     "DevOps and SRE engineer building CI/CD, Kubernetes, Terraform, observability, and reliability.",
+    "security":   "Security engineer doing application security, penetration testing, threat modeling, OWASP.",
+    "qa":         "QA / SDET test automation engineer writing test frameworks and CI test pipelines.",
+    "embedded":   "Embedded firmware engineer working on FPGA, RTOS, microcontrollers, hardware bring-up.",
+    "robotics":   "Robotics engineer working on perception, motion planning, actuation, and ROS.",
+    "network":    "Network or wireless engineer building 5G, RF, WiFi, telecom infrastructure.",
+    "voice":      "Voice and speech engineer working on ASR, TTS, voice assistants like Alexa.",
+    "game":       "Gameplay or game engine engineer working on Unity, Unreal, real-time graphics.",
+    "manager":    "Engineering manager or director leading software teams, hiring, and roadmap.",
+    "product":    "Product manager owning roadmap, requirements, user research, and cross-functional delivery.",
+    "design":     "UX or UI designer building wireframes, prototypes, and design systems in Figma.",
+    "sales":      "Sales, account executive, customer success, or solutions architect closing and supporting customers.",
+    "finance":    "Finance, investment banking, equity research, FP&A, financial modeling, valuation analyst.",
+    "hr":         "HR, recruiting, talent acquisition, people operations, HR business partner.",
+    "legal":      "Legal counsel, attorney, paralegal, compliance officer.",
+    "operations": "Operations manager, business operations, supply chain, logistics, fulfillment.",
+    "accounting": "Accountant, controller, auditor, tax analyst, internal audit, bookkeeper.",
+    "marketing":  "Marketing manager, brand manager, growth marketing, SEO, content marketing.",
+    "support":    "Customer support, technical support engineer, help desk, service desk."
+  }
+}
