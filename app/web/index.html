@@ -124,6 +124,43 @@
       });
     })();
   </script>
+
+  <!-- Razorpay Standard Checkout (India — KEY_ID only; secret stays on API) -->
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script>
+    window.openRazorpayStandardCheckout = function (opts) {
+      var options = {
+        key: opts.key,
+        amount: opts.amount,
+        currency: opts.currency || 'INR',
+        name: opts.name || 'HirePanda',
+        description: opts.description || 'HirePanda Pro',
+        order_id: opts.order_id,
+        prefill: opts.prefill || {},
+        theme: opts.theme || { color: '#1E3A8A' },
+        handler: function (response) {
+          if (window.__rzpSuccess) {
+            window.__rzpSuccess(
+              response.razorpay_order_id,
+              response.razorpay_payment_id,
+              response.razorpay_signature
+            );
+          }
+        },
+        modal: {
+          ondismiss: function () {
+            if (window.__rzpDismiss) window.__rzpDismiss();
+          },
+        },
+      };
+      var rzp = new Razorpay(options);
+      rzp.on('payment.failed', function (resp) {
+        var msg = (resp.error && resp.error.description) || 'Payment failed';
+        if (window.__rzpFailed) window.__rzpFailed(msg);
+      });
+      rzp.open();
+    };
+  </script>
 </head>
 <body>
   <!-- SEO: Crawlable content (hidden when Flutter loads, visible to search engines) -->

@@ -4,8 +4,9 @@
 //   INR/Razorpay plans for India or USD/LemonSqueezy for other countries).
 // - Loads /api/v1/billing/subscription for the user's current sub state.
 // - On Upgrade click:
-//     India  → POST /api/v1/billing/razorpay/checkout → opens Razorpay link
-//     Others → POST /api/v1/billing/checkout          → opens Lemon Squeezy URL
+//     India one-time → Standard Checkout modal (create-order + verify-payment)
+//     India recurring → POST /api/v1/billing/razorpay/checkout (subscription link)
+//     Others → POST /api/v1/billing/checkout (Lemon Squeezy)
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -14,8 +15,10 @@ import 'package:go_router/go_router.dart';
 import 'dart:html' as html;
 
 import 'package:auto_apply/config/theme.dart';
+import 'package:auto_apply/providers/auth_provider.dart';
 import 'package:auto_apply/providers/profile_provider.dart';
 import 'package:auto_apply/services/api_service.dart';
+import 'package:auto_apply/utils/razorpay_checkout_web.dart';
 import 'package:auto_apply/utils/subscription_access.dart';
 
 class PricingScreen extends StatefulWidget {
@@ -96,12 +99,18 @@ class _PricingScreenState extends State<PricingScreen> {
     try {
       final api = context.read<ApiService>();
       final provider = (plan['paymentProvider'] as String?) ?? 'lemonsqueezy';
+
+      // India one-time: Razorpay Standard Checkout (modal on this page).
+      if (_isIndia && provider == 'razorpay' && _paymentType == 'one_time') {
+        await _startRazorpayStandardCheckout(api, plan);
+        return;
+      }
+
       final endpoint = provider == 'razorpay'
           ? '/api/v1/billing/razorpay/checkout'
           : '/api/v1/billing/checkout';
 
       final body = <String, dynamic>{'planId': plan['id']};
-      // India (Razorpay) supports one-time vs subscription toggle
       if (_isIndia) {
         body['paymentType'] = _paymentType;
       }
@@ -142,6 +151,91 @@ class _PricingScreenState extends State<PricingScreen> {
           _busyPlanId = null;
         });
       }
+    }
+  }
+
+  Future<void> _startRazorpayStandardCheckout(
+    ApiService api,
+    Map<String, dynamic> plan,
+  ) async {
+    final planId = plan['id']?.toString() ?? '';
+    final orderResp = await api.post(
+      '/api/v1/billing/razorpay/create-order',
+      data: {'planId': planId},
+    );
+    final data = orderResp.data is Map
+        ? Map<String, dynamic>.from(orderResp.data as Map)
+        : <String, dynamic>{};
+
+    final orderId = (data['order_id'] ?? '').toString();
+    final keyId = (data['key_id'] ?? '').toString();
+    final amount = data['amount'] is int
+        ? data['amount'] as int
+        : int.tryParse('${data['amount']}') ?? 0;
+    final currency = (data['currency'] ?? 'INR').toString();
+    if (orderId.isEmpty || keyId.isEmpty || amount < 100) {
+      throw Exception('Invalid order response from server');
+    }
+
+    final pp = context.read<ProfileProvider>();
+    final auth = context.read<AuthProvider>();
+    final personal = pp.personal;
+    final name = '${personal['firstName'] ?? ''} ${personal['lastName'] ?? ''}'
+        .trim();
+    final email = (pp.profile?['email'] ?? auth.email ?? '').toString().trim();
+    final displayName = name.isNotEmpty ? name : (auth.name ?? 'HirePanda User');
+
+    final payment = await openRazorpayStandardCheckout(
+      keyId: keyId,
+      orderId: orderId,
+      amountPaise: amount,
+      currency: currency,
+      description: 'HirePanda ${plan['name'] ?? 'Pro'}',
+      customerName: displayName,
+      customerEmail: email.isNotEmpty ? email : 'user@example.com',
+    );
+
+    if (payment == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Payment cancelled.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
+    final verifyResp = await api.post(
+      '/api/v1/billing/razorpay/verify-payment',
+      data: {
+        'planId': planId,
+        'razorpay_order_id': payment['razorpay_order_id'],
+        'razorpay_payment_id': payment['razorpay_payment_id'],
+        'razorpay_signature': payment['razorpay_signature'],
+      },
+    );
+    final ok = verifyResp.data is Map &&
+        (verifyResp.data['success'] == true ||
+            verifyResp.data['tier'] == 'pro');
+    if (!ok) {
+      throw Exception('Payment verification failed');
+    }
+
+    try {
+      await pp.loadProfile();
+    } catch (_) {}
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Payment successful — HirePanda Pro is now active!'),
+          backgroundColor: AppTheme.success,
+          duration: Duration(seconds: 4),
+        ),
+      );
+      context.push('/billing/success');
     }
   }
 

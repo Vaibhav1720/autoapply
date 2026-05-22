@@ -3,7 +3,11 @@
 Exposes:
   - GET  /api/v1/billing/plans              country-aware catalogue
   - POST /api/v1/billing/checkout           Lemon Squeezy (international)
-  - POST /api/v1/billing/razorpay/checkout  Razorpay Payment Link (India)
+  - POST /api/v1/billing/razorpay/checkout  Razorpay Payment Link / Subscription (India)
+  - POST /api/v1/billing/razorpay/create-order   Standard Checkout — create order
+  - POST /api/v1/billing/razorpay/verify-payment Standard Checkout — verify signature
+  - POST /api/v1/billing/create-order            alias → create-order
+  - POST /api/v1/billing/verify-payment            alias → verify-payment
   - GET  /api/v1/billing/subscription
   - POST /api/v1/billing/cancel
   - GET  /api/v1/billing/portal
@@ -20,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 import azure.functions as func
@@ -282,6 +287,66 @@ def _notify_payment_receipt(
             )
     except Exception as e:
         logger.warning("[BILLING] payment receipt email failed user=%s: %s", user_id, e)
+
+
+def _upgrade_rzp_one_time_pro(
+    user_id: str,
+    *,
+    plan_id: str,
+    payment_id: str,
+    order_id: str = "",
+    raw_payload: dict | None = None,
+) -> None:
+    """Mirror webhook one-time upgrade after Standard Checkout verification."""
+    interval = "year" if "yearly" in plan_id else "month"
+    plan = next((p for p in PLANS_INR if p["id"] == plan_id), {})
+    price_inr = plan.get("priceInr")
+    plan_name = plan.get("name") or plan_id or "Pro"
+    renews_at = _renews_at_iso(interval)
+    now = _now_iso()
+    _ensure_subscriptions_container()
+    doc = {
+        "id": f"sub-rzp-{payment_id}",
+        "userId": user_id,
+        "provider": "razorpay",
+        "paymentType": "one_time",
+        "rzpPaymentId": payment_id,
+        "rzpOrderId": order_id,
+        "planId": plan_id,
+        "interval": interval,
+        "priceInr": price_inr,
+        "currency": "INR",
+        "status": "active",
+        "renewsAt": renews_at,
+        "createdAt": now,
+        "updatedAt": now,
+        "raw": raw_payload or {},
+    }
+    upsert_item("subscriptions", doc)
+    profile = read_item("profiles", user_id, user_id)
+    if profile:
+        profile["subscription"] = {
+            "tier": "pro",
+            "status": "active",
+            "interval": interval,
+            "paymentType": "one_time",
+            "priceInr": price_inr,
+            "provider": "razorpay",
+            "rzpPaymentId": payment_id,
+            "renewsAt": renews_at,
+            "updatedAt": now,
+        }
+        profile["tier"] = "pro"
+        upsert_item("profiles", profile)
+    amount_display = f"₹{price_inr}" if price_inr else "₹—"
+    _notify_payment_receipt(
+        user_id,
+        plan_name=plan_name,
+        amount_display=amount_display,
+        payment_id=payment_id,
+        provider="Razorpay",
+        interval=interval,
+    )
 
 
 def _public_sub(profile: dict | None) -> dict:
@@ -620,6 +685,183 @@ def razorpay_checkout(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as e:
         logger.exception("razorpay_checkout failed")
         return internal_error_response(str(e))
+
+
+def _razorpay_create_order_impl(req: func.HttpRequest) -> func.HttpResponse:
+    """Standard Checkout — create Razorpay order (amount in paise)."""
+    try:
+        user_id = get_user_id(req)
+        ip_country = _resolve_country(req)
+        if ip_country and not _is_india_country(ip_country):
+            raise ValidationError(
+                "Razorpay is only available for users in India."
+            )
+
+        body = req.get_json() if req.get_body() else {}
+        plan_id = (body.get("planId") or "").strip()
+        if not plan_id:
+            raise ValidationError("planId is required")
+
+        plan = next((p for p in PLANS_INR if p["id"] == plan_id), None)
+        if not plan or plan["id"] == "free":
+            raise ValidationError(f"Unknown or non-purchasable plan: {plan_id}")
+
+        amount_paise = int(plan.get("amountPaise") or 0)
+        if amount_paise < 100:
+            raise ValidationError("amount must be at least 100 paise")
+
+        if not rp.is_configured():
+            raise AppException(
+                "Razorpay is not yet configured.",
+                code="PAYMENT_UNAVAILABLE",
+                status_code=503,
+            )
+
+        receipt = f"hp_{user_id[:8]}_{int(time.time())}"
+        try:
+            order = rp.create_order(
+                amount_paise=amount_paise,
+                currency="INR",
+                receipt=receipt,
+                notes={"user_id": user_id, "plan_id": plan_id},
+            )
+        except PermissionError:
+            return func.HttpResponse(
+                json.dumps({"error": {"message": "Razorpay authentication failed"}}),
+                status_code=401,
+                mimetype="application/json",
+            )
+        except Exception as exc:
+            logger.error("[RZP] create_order API error: %s", exc)
+            raise AppException(
+                "Failed to create Razorpay order",
+                code="PAYMENT_ERROR",
+                status_code=500,
+            ) from exc
+
+        order_id = order.get("id") or ""
+        if not order_id:
+            raise AppException(
+                "Razorpay order id missing",
+                code="PAYMENT_ERROR",
+                status_code=502,
+            )
+
+        return success_response({
+            "order_id": order_id,
+            "amount": amount_paise,
+            "currency": order.get("currency") or "INR",
+            "key_id": rp.public_key_id(),
+            "planId": plan_id,
+        })
+    except AppException as e:
+        return error_response(e)
+    except ValidationError as e:
+        return error_response(e)
+    except Exception as e:
+        logger.exception("razorpay_create_order failed")
+        return internal_error_response(str(e))
+
+
+def _razorpay_verify_payment_impl(req: func.HttpRequest) -> func.HttpResponse:
+    """Standard Checkout — verify payment signature and upgrade to Pro."""
+    try:
+        user_id = get_user_id(req)
+        body = req.get_json() if req.get_body() else {}
+        order_id = (body.get("razorpay_order_id") or body.get("order_id") or "").strip()
+        payment_id = (body.get("razorpay_payment_id") or body.get("payment_id") or "").strip()
+        signature = (body.get("razorpay_signature") or body.get("signature") or "").strip()
+        plan_id = (body.get("planId") or "").strip()
+
+        if not order_id or not payment_id or not signature:
+            raise ValidationError(
+                "razorpay_order_id, razorpay_payment_id, and razorpay_signature are required"
+            )
+
+        if not rp.is_configured():
+            raise AppException(
+                "Razorpay is not yet configured.",
+                code="PAYMENT_UNAVAILABLE",
+                status_code=503,
+            )
+
+        if not rp.verify_checkout_signature(order_id, payment_id, signature):
+            return func.HttpResponse(
+                json.dumps({
+                    "success": False,
+                    "error": {"message": "Payment signature verification failed"},
+                }),
+                status_code=400,
+                mimetype="application/json",
+            )
+
+        if not plan_id:
+            try:
+                pay = rp.fetch_payment(payment_id)
+                notes = pay.get("notes") or {}
+                if isinstance(notes, list):
+                    notes = {}
+                plan_id = (notes.get("plan_id") or "").strip()
+                notes_user = (notes.get("user_id") or "").strip()
+                if notes_user and notes_user != user_id:
+                    raise ValidationError("Payment does not belong to this user")
+            except ValidationError:
+                raise
+            except Exception:
+                pass
+
+        if not plan_id:
+            raise ValidationError("planId is required for verification")
+
+        plan = next((p for p in PLANS_INR if p["id"] == plan_id), None)
+        if not plan or plan["id"] == "free":
+            raise ValidationError(f"Unknown plan: {plan_id}")
+
+        _upgrade_rzp_one_time_pro(
+            user_id,
+            plan_id=plan_id,
+            payment_id=payment_id,
+            order_id=order_id,
+            raw_payload={"source": "standard_checkout", "verified": True},
+        )
+        logger.info(
+            "[RZP] standard checkout verified user=%s payment=%s",
+            user_id,
+            payment_id,
+        )
+        return success_response({
+            "success": True,
+            "tier": "pro",
+            "payment_id": payment_id,
+            "order_id": order_id,
+        })
+    except AppException as e:
+        return error_response(e)
+    except ValidationError as e:
+        return error_response(e)
+    except Exception as e:
+        logger.exception("razorpay_verify_payment failed")
+        return internal_error_response(str(e))
+
+
+@bp.route(route="api/v1/billing/razorpay/create-order", methods=["POST"])
+def razorpay_create_order(req: func.HttpRequest) -> func.HttpResponse:
+    return _razorpay_create_order_impl(req)
+
+
+@bp.route(route="api/v1/billing/create-order", methods=["POST"])
+def billing_create_order_alias(req: func.HttpRequest) -> func.HttpResponse:
+    return _razorpay_create_order_impl(req)
+
+
+@bp.route(route="api/v1/billing/razorpay/verify-payment", methods=["POST"])
+def razorpay_verify_payment(req: func.HttpRequest) -> func.HttpResponse:
+    return _razorpay_verify_payment_impl(req)
+
+
+@bp.route(route="api/v1/billing/verify-payment", methods=["POST"])
+def billing_verify_payment_alias(req: func.HttpRequest) -> func.HttpResponse:
+    return _razorpay_verify_payment_impl(req)
 
 
 @bp.route(route="api/v1/billing/subscription", methods=["GET"])
@@ -1129,58 +1371,15 @@ def razorpay_webhook(req: func.HttpRequest) -> func.HttpResponse:
         _ensure_subscriptions_container()
 
         if event in ("payment.captured", "payment_link.paid"):
-            # One-time payment (Payment Link flow)
-            interval = "year" if "yearly" in plan_id else "month"
-            plan = next((p for p in PLANS_INR if p["id"] == plan_id), {})
-            price_inr = plan.get("priceInr")
-            plan_name = plan.get("name") or plan_id or "Pro"
-            renews_at = _renews_at_iso(interval)
-            now = _now_iso()
-            doc = {
-                "id": f"sub-rzp-{payment_id}",
-                "userId": user_id,
-                "provider": "razorpay",
-                "paymentType": "one_time",
-                "rzpPaymentId": payment_id,
-                "rzpOrderId": pay_entity.get("order_id") or "",
-                "planId": plan_id,
-                "interval": interval,
-                "priceInr": price_inr,
-                "currency": "INR",
-                "status": "active",
-                "renewsAt": renews_at,
-                "createdAt": now,
-                "updatedAt": now,
-                "raw": payload,
-            }
-            upsert_item("subscriptions", doc)
-
-            profile = read_item("profiles", user_id, user_id)
-            if profile:
-                profile["subscription"] = {
-                    "tier": "pro",
-                    "status": "active",
-                    "interval": interval,
-                    "paymentType": "one_time",
-                    "priceInr": price_inr,
-                    "provider": "razorpay",
-                    "rzpPaymentId": payment_id,
-                    "renewsAt": renews_at,
-                    "updatedAt": now,
-                }
-                profile["tier"] = "pro"
-                upsert_item("profiles", profile)
-                logger.info("[RZP] (one-time) upgraded user %s to pro (plan=%s)", user_id, plan_id)
-
-            amount_display = f"₹{price_inr}" if price_inr else "₹—"
-            _notify_payment_receipt(
+            # One-time payment (Payment Link or Standard Checkout)
+            _upgrade_rzp_one_time_pro(
                 user_id,
-                plan_name=plan_name,
-                amount_display=amount_display,
+                plan_id=plan_id or "pro_monthly",
                 payment_id=payment_id,
-                provider="Razorpay",
-                interval=interval,
+                order_id=pay_entity.get("order_id") or "",
+                raw_payload=payload,
             )
+            logger.info("[RZP] (one-time) upgraded user %s to pro (plan=%s)", user_id, plan_id)
 
         elif event == "subscription.charged":
             # Recurring subscription charged (auto-renewal or first charge)

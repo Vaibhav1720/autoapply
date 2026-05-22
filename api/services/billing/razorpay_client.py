@@ -33,6 +33,11 @@ def is_configured() -> bool:
     return bool(_KEY_ID() and _KEY_SECRET())
 
 
+def public_key_id() -> str:
+    """Razorpay Key ID for Standard Checkout (safe to expose to the browser)."""
+    return _KEY_ID()
+
+
 def create_payment_link(
     *,
     amount_paise: int,
@@ -99,6 +104,57 @@ def verify_webhook_signature(body: bytes, signature: str) -> bool:
         return False
     expected = hmac.new(
         secret.encode("utf-8"), body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature.strip())
+
+
+def create_order(
+    *,
+    amount_paise: int,
+    currency: str = "INR",
+    receipt: str,
+    notes: dict | None = None,
+) -> dict:
+    """Create a Razorpay Order for Standard Checkout (POST /v1/orders)."""
+    if amount_paise < 100:
+        raise ValueError("amount must be at least 100 paise")
+    payload: dict = {
+        "amount": int(amount_paise),
+        "currency": currency,
+        "receipt": receipt[:40],
+        "notes": notes or {},
+    }
+    resp = requests.post(
+        f"{_BASE}/orders",
+        json=payload,
+        auth=(_KEY_ID(), _KEY_SECRET()),
+        timeout=15,
+    )
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError:
+        status = resp.status_code
+        logger.error(
+            "[RAZORPAY] create_order failed %s: %s", status, resp.text[:400]
+        )
+        if status in (401, 403):
+            raise PermissionError("Razorpay authentication failed") from None
+        raise
+    return resp.json()
+
+
+def verify_checkout_signature(
+    order_id: str,
+    payment_id: str,
+    signature: str,
+) -> bool:
+    """Verify Standard Checkout signature: HMAC-SHA256(order_id|payment_id)."""
+    secret = _KEY_SECRET()
+    if not secret or not order_id or not payment_id or not signature:
+        return False
+    message = f"{order_id}|{payment_id}"
+    expected = hmac.new(
+        secret.encode("utf-8"), message.encode("utf-8"), hashlib.sha256
     ).hexdigest()
     return hmac.compare_digest(expected, signature.strip())
 
