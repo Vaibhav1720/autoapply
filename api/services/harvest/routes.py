@@ -10,10 +10,20 @@ path becomes a Cosmos point-read instead of an outbound HTTP call.
 
 Run cadence
 -----------
-Default cron is every 30 min, well inside the 2h cache TTL so a refresh
-always lands before the previous entry expires. Tunable via
-`HARVEST_CRON` env var. Also exposed manually at
-`POST /api/v1/admin/harvest`.
+Timer is **off by default** (`HARVEST_ENABLED=0`). Set `HARVEST_ENABLED=1`
+and optionally `HARVEST_CRON` (default every 30 min) when traffic justifies
+background pre-warm. Manual run: `POST /api/v1/admin/harvest`.
+
+Data-driven harvest (future)
+----------------------------
+User searches are already persisted — no extra logging needed for normal
+discover flows:
+  - `match_events` docs with `kind=discover_run` (queries, locations,
+    per-company ids) — written by bulk/company/LinkedIn discover.
+  - `jobs` container `kind=scrape_cache` rows (companyId + query + location)
+    — written on live scrape cache miss via `_scrape_company_cached`.
+A future harvest pass can aggregate top (query, location, company) tuples
+from `discover_run` and warm only those keys instead of a static grid.
 
 Coverage policy
 ---------------
@@ -50,8 +60,13 @@ bp = func.Blueprint()
 
 
 # ── Tunables ────────────────────────────────────────────────────────────────
+# Timer master switch — off until real traffic (saves scrape + Functions cost).
+HARVEST_ENABLED = os.environ.get("HARVEST_ENABLED", "0").strip().lower() in (
+    "1", "true", "yes",
+)
+
 # Cron expression — Azure Functions NCRONTAB format ("sec min hour ..").
-# Default = every 30 min, on the minute.
+# Default = every 30 min when enabled.
 HARVEST_CRON = os.environ.get("HARVEST_CRON", "0 */30 * * * *")
 
 # Concurrency for the harvest fan-out. Keep modest so we don't hammer
@@ -211,6 +226,9 @@ def _run_harvest(company_ids: list[str] | None = None,
              use_monitor=True)
 def harvest_scrape_cache(timer: func.TimerRequest) -> None:
     """Timer-triggered harvest of the scrape cache."""
+    if not HARVEST_ENABLED:
+        logger.info("[HARVEST] timer skipped (HARVEST_ENABLED is not set)")
+        return
     try:
         _run_harvest()
     except Exception as e:  # never let the function crash the host

@@ -56,7 +56,7 @@ az deployment group create `
   --parameters envName=dev location=$LOC storageAccountName=$STOR
 ```
 
-This creates: Cosmos DB (free tier), Storage, Service Bus, Function App (Flex Consumption Python 3.11), AI Foundry, Static Web App, App Insights.
+This creates: Cosmos DB (free tier), Storage, Function App (Consumption Python 3.11), AI Foundry, Static Web App, App Insights.
 
 **Then deploy the AI models** (portal → AI Foundry resource → Model deployments). Names are hard-coded in `api/services/_runtime.py`:
 

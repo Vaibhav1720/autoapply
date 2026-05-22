@@ -201,11 +201,18 @@ az cosmosdb sql query -g <your-resource-group> -a <your-cosmos-account> -d autoa
 
 ### Phase 8 — 1k-DAU infra (LAST, biggest blast radius)
 
+> **Ops note (2026-05):** Do **not** run Consumption + Flex Function Apps in parallel.
+> Prod stays on `autoapply-func-dev` (Y1) until a deliberate cutover. `autoapply-func-flex-dev`
+> was removed — dual apps duplicated harvest/prewarm timers (~2× background cost).
+> Background harvest timer is **paused** (`HARVEST_ENABLED=0`); re-enable when traffic
+> justifies it. Harvest should later read `match_events` `discover_run` + `jobs` scrape_cache
+> (user queries are already stored there) instead of a static query×location grid.
+
 **Why:** Current infra has 4 hard blockers at ~200-300 DAU (Y1 cold starts, in-process caches, Cosmos RU on telemetry, LLM TPM). Total cost: ~$180-240/mo over today.
 
 **Implementation (Bicep diffs in `infra/main.bicep`):**
 
-1. **Hosting plan: Y1 → Flex Consumption (FC1):**
+1. **Hosting plan: Y1 → Flex Consumption (FC1)** — **migrate prod once, then delete Y1:**
    ```bicep
    resource hostingPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
      name: '${functionAppName}-plan'
@@ -242,11 +249,9 @@ az cosmosdb sql query -g <your-resource-group> -a <your-cosmos-account> -d autoa
 5. **App Insights sampling:**
    In function app App Settings: `APPLICATIONINSIGHTS_SAMPLING_PERCENTAGE=25`.
 
-6. **Service Bus queue + worker function (NEW, separate function):**
-   - Bicep: namespace + queue `discover-bulk`.
-   - New function `discover_bulk_worker.py` that consumes the queue and writes results to `userJobMatches` (user polls).
-   - Existing `/api/v1/jobs/discover/bulk` endpoint becomes 202-and-enqueue.
-   - **DEFER if time-tight** — biggest single change in this phase. Mark as Phase 8b.
+6. **Async discover (prefer Storage Queue on existing storage account):**
+   - New worker function; `/api/v1/jobs/discover/bulk` returns 202 + poll.
+   - **DEFER if time-tight** — mark as Phase 8b. (Service Bus removed from dev — not required.)
 
 **Verification:**
 1. `bicep build infra/main.bicep` passes (no schema errors).

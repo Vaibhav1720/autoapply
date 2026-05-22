@@ -9,7 +9,9 @@ import 'package:go_router/go_router.dart';
 import 'dart:html' as html;
 
 import 'package:auto_apply/config/theme.dart';
+import 'package:auto_apply/providers/profile_provider.dart';
 import 'package:auto_apply/services/api_service.dart';
+import 'package:auto_apply/utils/subscription_access.dart';
 
 class SubscriptionScreen extends StatefulWidget {
   const SubscriptionScreen({super.key});
@@ -37,6 +39,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     });
     try {
       final api = context.read<ApiService>();
+      try {
+        await context.read<ProfileProvider>().loadProfile();
+      } catch (_) {}
       // Cache-bust so browser/CDN never serves a stale subscription snapshot
       final resp = await api.get(
         '/api/v1/billing/subscription',
@@ -174,9 +179,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final pp = context.watch<ProfileProvider>();
     final tier = (_sub['tier'] ?? 'free').toString().toLowerCase();
     final status = (_sub['status'] ?? '').toString();
-    final isPro = tier == 'pro' || tier == 'lifetime' || tier == 'admin';
+    final isPro = pp.isPremium || isPremiumTier(tier);
     final cancelled = status.toLowerCase() == 'cancelled';
 
     return Scaffold(
@@ -200,6 +206,33 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                 isPro: isPro, sub: _sub, cancelled: cancelled),
                             const SizedBox(height: 16),
                             if (isPro) ...[
+                              if (cancelled) ...[
+                                SizedBox(
+                                  width: double.infinity,
+                                  height: 48,
+                                  child: FilledButton.icon(
+                                    onPressed: _busy
+                                        ? null
+                                        : () => context.go('/pricing'),
+                                    icon: const Icon(Icons.autorenew_rounded),
+                                    label: const Text('Subscribe again'),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppTheme.primary,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Your subscription is cancelled. Pro stays active until the access date above — subscribe again to keep it after that.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey.shade700,
+                                    height: 1.4,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                              ],
                               // Portal tile — show for all except one-time Razorpay
                               if (!(_isRazorpay && _isOneTime))
                                 _ActionTile(
@@ -308,7 +341,7 @@ class _PlanCard extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Text(
-                isPro ? 'AutoApply Pro' : 'Free plan',
+                isPro ? 'HirePanda Pro' : 'Free plan',
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 26,
@@ -321,8 +354,7 @@ class _PlanCard extends StatelessWidget {
             const SizedBox(height: 16),
             _row('Status', _statusLabel()),
             if ((sub['interval'] ?? '').toString().isNotEmpty)
-              _row('Billing',
-                  '${sub['interval']}ly${(sub['paymentType'] ?? '') == 'one_time' ? ' · one-time' : ''}'),
+              _row('Billing', _billingPeriodLabel(sub)),
             if ((sub['priceInr'] ?? '').toString().isNotEmpty)
               _row('Price', '₹${sub['priceInr']}')
             else if ((sub['priceUsd'] ?? '').toString().isNotEmpty)
@@ -348,6 +380,20 @@ class _PlanCard extends StatelessWidget {
     final s = (sub['status'] ?? '').toString();
     if (s.isEmpty) return 'Active';
     return s[0].toUpperCase() + s.substring(1);
+  }
+
+  String _billingPeriodLabel(Map<String, dynamic> sub) {
+    final interval = (sub['interval'] ?? '').toString().toLowerCase();
+    final period = switch (interval) {
+      'week' => 'Weekly',
+      'year' => 'Yearly',
+      'month' => 'Monthly',
+      _ => interval.isEmpty ? '' : '${interval[0].toUpperCase()}${interval.substring(1)}',
+    };
+    if ((sub['paymentType'] ?? '') == 'one_time') {
+      return period.isEmpty ? 'One-time' : '$period · one-time';
+    }
+    return period;
   }
 
   String _fmt(dynamic v) {
@@ -464,9 +510,22 @@ class _BillingSuccessScreenState extends State<BillingSuccessScreen> {
       _attempts++;
       try {
         final api = context.read<ApiService>();
+        final pp = context.read<ProfileProvider>();
+        try {
+          await pp.loadProfile();
+        } catch (_) {}
+        if (pp.isPremium) {
+          if (mounted) {
+            setState(() {
+              _isPro = true;
+              _checking = false;
+            });
+          }
+          return;
+        }
         final resp = await api.get('/api/v1/billing/subscription');
         final tier = (resp.data?['tier'] ?? '').toString().toLowerCase();
-        if (tier == 'pro' || tier == 'lifetime' || tier == 'admin') {
+        if (isPremiumTier(tier)) {
           if (mounted) {
             setState(() {
               _isPro = true;

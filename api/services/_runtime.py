@@ -65,7 +65,7 @@ _UPGRADE_MESSAGE_INR = (
 )
 _UPGRADE_MESSAGE_USD = (
     "You've reached your daily free limit. "
-    "Upgrade to Premium for just $9.99/month \u2014 less than $0.34/day \u2014 "
+    "Upgrade to Premium for just $9.99/month \u2014 less than $0.25/day \u2014 "
     "and unlock unlimited job searches, AI autofill, and resume tailoring. "
     "A small step that could help you land your dream job and change your career path forever."
 )
@@ -214,11 +214,17 @@ def _check_daily_quota(profile: dict, search_id: str | None = None) -> tuple[boo
 
 
 def _get_user_tier(profile: dict) -> str:
-    return (
+    tier = (
         (profile.get("subscription") or {}).get("tier")
         or profile.get("tier")
         or "free"
     ).lower()
+    if tier in ("premium", "pro", "lifetime", "career_plus", "admin"):
+        return tier
+    email = (profile.get("email") or "").strip().lower()
+    if email and email in SUPER_ADMIN_EMAILS:
+        return "admin"
+    return tier
 
 
 def _is_premium(profile: dict) -> bool:

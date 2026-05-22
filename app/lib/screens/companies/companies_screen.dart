@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:auto_apply/config/theme.dart';
+import 'package:auto_apply/utils/pricing_copy.dart';
 import 'package:auto_apply/providers/profile_provider.dart';
 import 'package:auto_apply/services/api_service.dart';
 
-/// Companies tab — pick which employers AutoApply scans for matching roles.
+/// Companies tab — pick which employers HirePanda scans for matching roles.
 ///
 /// Selections auto-save (debounced) so users never need to remember to press
 /// a button. UI mirrors the Discover screen's hero + search aesthetic.
@@ -63,10 +64,7 @@ class _CompaniesScreenState extends State<CompaniesScreen> {
         if (pp.profile == null) {
           try { await pp.loadProfile(); } catch (_) {}
         }
-        final profile = pp.profile;
-        final tier = ((profile?['subscription'] as Map<String, dynamic>?)?['tier']
-            ?? profile?['tier'] ?? 'free').toString().toLowerCase();
-        final isPremium = const {'premium','pro','lifetime','career_plus','admin'}.contains(tier);
+        final isPremium = pp.isPremium;
         final maxAllowed = isPremium ? kMaxSelectedPremium : kMaxSelectedFree;
 
         if (selectedIds.length > maxAllowed) {
@@ -138,15 +136,11 @@ class _CompaniesScreenState extends State<CompaniesScreen> {
   static const int kMaxSelectedFree = 5;
 
   int get _maxSelected {
-    final profile = context.read<ProfileProvider>().profile;
-    final tier = ((profile?['subscription'] as Map<String, dynamic>?)?['tier']
-        ?? profile?['tier'] ?? 'free').toString().toLowerCase();
-    return const {'premium','pro','lifetime','career_plus','admin'}.contains(tier)
-        ? kMaxSelectedPremium
-        : kMaxSelectedFree;
+    final pp = context.read<ProfileProvider>();
+    return pp.isPremium ? kMaxSelectedPremium : kMaxSelectedFree;
   }
 
-  bool get _isPremium => _maxSelected > kMaxSelectedFree;
+  bool get _isPremium => context.read<ProfileProvider>().isPremium;
 
   void _toggle(String id) {
     setState(() {
@@ -240,7 +234,7 @@ class _CompaniesScreenState extends State<CompaniesScreen> {
               Builder(builder: (ctx2) {
                 final pp = context.read<ProfileProvider>();
                 final country = ((pp.profile?['applicationDetails'] as Map?)?['country'] as String? ?? '').toUpperCase();
-                final isIndia = country == 'IN' || country == 'INDIA' || country == 'IND';
+                final isIndia = isIndiaCountry(country);
                 return Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   decoration: BoxDecoration(
@@ -249,9 +243,7 @@ class _CompaniesScreenState extends State<CompaniesScreen> {
                     border: Border.all(color: const Color(0xFF6366f1).withValues(alpha: 0.2)),
                   ),
                   child: Text(
-                    isIndia
-                        ? 'Just \u20b9199/month \u2014 less than \u20b97/day'
-                        : 'From \$9.99/month \u2014 less than \$0.34/day',
+                    upgradePriceHighlight(isIndia: isIndia),
                     style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF6366f1)),
                   ),
                 );
@@ -295,7 +287,7 @@ class _CompaniesScreenState extends State<CompaniesScreen> {
     if (_savedAt != null) return 'All changes saved';
     final max = _maxSelected;
     return _selected.isEmpty
-        ? 'Pick the employers you want AutoApply to scan (up to $max)'
+        ? 'Pick the employers you want HirePanda to scan (up to $max)'
         : '${_selected.length} of $max selected';
   }
 

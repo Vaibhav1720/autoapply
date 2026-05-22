@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// AutoApply design system theme.
+/// HirePanda design system theme.
 ///
 /// Palette: a deep, modern royal-indigo blue (not the flat Material default).
 /// Inspired by Linear / Notion / Vercel — saturated but not childish.

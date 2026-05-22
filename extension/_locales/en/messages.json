@@ -1,10 +1,10 @@
 {
   "extName": {
-    "message": "AutoApply – Job Form Autofill",
+    "message": "HirePanda – Job Form Autofill",
     "description": "Extension name shown in the Chrome Web Store and toolbar."
   },
   "extShortDescription": {
-    "message": "Save time on job applications. AutoApply fills name, contact, work history and common questions from your resume in one click.",
+    "message": "AI That Finds Jobs Meant For You. HirePanda fills name, contact, work history and common questions from your resume in one click.",
     "description": "Short description (max 132 chars) shown in the Chrome Web Store listing."
   }
 }

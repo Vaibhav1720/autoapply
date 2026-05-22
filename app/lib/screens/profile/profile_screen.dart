@@ -15,6 +15,7 @@ import 'package:auto_apply/providers/profile_provider.dart';
 import 'package:auto_apply/services/api_service.dart';
 import 'package:auto_apply/widgets/simple_markdown.dart';
 import 'package:auto_apply/widgets/profile_guards.dart';
+import 'package:auto_apply/widgets/tailor_resume_dialog.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -101,200 +102,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
       for (final k in (prefs['keywords'] as List?) ?? const [])
         if (k.toString().trim().isNotEmpty) k.toString().trim(),
     ];
-    final List<String> selectedTitles = <String>{
+    final initialTitles = <String>{
       ...savedKeywords.take(4),
       if (targetRole.isNotEmpty && !savedKeywords.contains(targetRole)) targetRole,
     }.toList();
-    final roleCtrl = TextEditingController();
 
-    final picked = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(builder: (ctx, setLocal) {
-          List<String> rolesForIndustry =
-              kRolesByIndustry[selectedIndustry] ?? const [];
-          // Suggested chips = curated roles for the picked industry, minus
-          // anything the user already added.
-          final suggestions = rolesForIndustry
-              .where((r) => !selectedTitles.contains(r))
-              .take(8)
-              .toList();
-
-          void addRole(String r) {
-            final v = r.trim();
-            if (v.isEmpty || selectedTitles.contains(v)) return;
-            setLocal(() => selectedTitles.add(v));
-          }
-
-          return AlertDialog(
-            title: const Text('Tailor my resume'),
-            content: SizedBox(
-              width: 520,
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      "We'll pull your best-matched jobs and rewrite "
-                      "keywords, bullets, and your headline against the "
-                      "industry and roles you pick here.",
-                      style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
-                    ),
-                    const SizedBox(height: 14),
-                    const Text('Industry', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 6),
-                    SizedBox(
-                      height: 36,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: kIndustries.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 6),
-                        itemBuilder: (_, i) {
-                          final ind = kIndustries[i];
-                          final selected = ind.id == selectedIndustry;
-                          return InkWell(
-                            borderRadius: BorderRadius.circular(18),
-                            onTap: () => setLocal(() => selectedIndustry = ind.id),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 7),
-                              decoration: BoxDecoration(
-                                color: selected
-                                    ? AppTheme.primary
-                                    : AppTheme.surface,
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(
-                                  color: selected
-                                      ? AppTheme.primary
-                                      : AppTheme.border,
-                                ),
-                              ),
-                              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                Text(ind.emoji,
-                                    style: const TextStyle(fontSize: 13)),
-                                const SizedBox(width: 6),
-                                Text(
-                                  ind.label,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: selected
-                                        ? Colors.white
-                                        : AppTheme.textPrimary,
-                                  ),
-                                ),
-                              ]),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Row(children: [
-                      const Text('Role focus',
-                          style: TextStyle(
-                              fontSize: 12, fontWeight: FontWeight.w700)),
-                      const SizedBox(width: 6),
-                      const Icon(Icons.info_outline,
-                          size: 13, color: AppTheme.textSecondary),
-                      const SizedBox(width: 4),
-                      const Expanded(
-                        child: Text(
-                          'Tells the model which titles to prioritise '
-                          'when picking keywords + bullets.',
-                          style: TextStyle(
-                              fontSize: 11, color: AppTheme.textSecondary),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ]),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        for (final t in selectedTitles)
-                          InputChip(
-                            label: Text(t,
-                                style: const TextStyle(fontSize: 12)),
-                            onDeleted: () =>
-                                setLocal(() => selectedTitles.remove(t)),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: roleCtrl,
-                      decoration: InputDecoration(
-                        isDense: true,
-                        hintText: 'Add a role (e.g. Data Engineer) and press Enter',
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.add, size: 18),
-                          onPressed: () {
-                            addRole(roleCtrl.text);
-                            roleCtrl.clear();
-                          },
-                        ),
-                      ),
-                      onSubmitted: (v) {
-                        addRole(v);
-                        roleCtrl.clear();
-                      },
-                    ),
-                    if (suggestions.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      const Text('Suggestions',
-                          style: TextStyle(
-                              fontSize: 11, color: AppTheme.textSecondary)),
-                      const SizedBox(height: 4),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          for (final s in suggestions)
-                            ActionChip(
-                              label: Text(s,
-                                  style: const TextStyle(fontSize: 11)),
-                              onPressed: () => addRole(s),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.auto_awesome, size: 16),
-                label: const Text('Tailor my resume'),
-                onPressed: () => Navigator.pop(ctx, {
-                  'industry': selectedIndustry,
-                  'titles': selectedTitles,
-                }),
-              ),
-            ],
-          );
-        });
-      },
+    final picked = await showTailorResumeDialog(
+      context,
+      initialIndustryId: selectedIndustry,
+      initialTitles: initialTitles,
     );
     if (picked == null || !mounted) return;
 
     setState(() => _suggesting = true);
     try {
       final api = context.read<ApiService>();
-      final titles = (picked['titles'] as List?)?.cast<String>() ?? const [];
+      final titles = picked.titles;
       // Body intentionally omits `jobs` so the backend pulls the user's
       // most recent Discover results (top-scoring first) AND mines
       // cross-resume signal from peer profiles.
       final resp = await api.post('/api/v1/resume/suggest-improvements',
           data: {
-            'industry': picked['industry'],
+            'industry': picked.industry,
             'targetRole': titles.isNotEmpty ? titles.first : targetRole,
             'targetTitles': titles,
           });
@@ -378,7 +207,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: const Text('Delete account?'),
         content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text(
-            'This will permanently delete your AutoApply account, profile, '
+            'This will permanently delete your HirePanda account, profile, '
             'uploaded resumes, and saved answers. This cannot be undone.',
           ),
           const SizedBox(height: 12),
@@ -786,15 +615,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         actions: [
           Consumer<ProfileProvider>(
             builder: (_, pp, __) {
-              final tier = (pp.profile?['tier'] ??
-                      (pp.profile?['subscription'] is Map
-                          ? (pp.profile?['subscription'] as Map)['tier']
-                          : null) ??
-                      'free')
-                  .toString()
-                  .toLowerCase();
-              final isPro = tier == 'pro' || tier == 'lifetime' || tier == 'admin';
-              if (isPro) {
+              if (pp.isPremium) {
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
                   child: ActionChip(
@@ -887,15 +708,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 subtitle: const Text('View plan, invoices, manage payment', style: TextStyle(fontSize: 12)),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
-                  final tier = (pp.profile?['tier'] ??
-                          (pp.profile?['subscription'] is Map
-                              ? (pp.profile?['subscription'] as Map)['tier']
-                              : null) ??
-                          'free')
-                      .toString()
-                      .toLowerCase();
-                  final isPro = tier == 'pro' || tier == 'lifetime' || tier == 'admin';
-                  context.push(isPro ? '/subscription' : '/pricing');
+                  context.push(pp.isPremium ? '/subscription' : '/pricing');
                 },
               )),
               const SizedBox(height: 12),

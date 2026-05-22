@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:auto_apply/config/constants.dart';
 import 'package:auto_apply/config/theme.dart';
 import 'package:auto_apply/providers/auth_provider.dart';
 
@@ -45,7 +46,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     const Text('Create Account',
                         style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
-                    const Text('Join AutoApply to discover matching jobs',
+                    Text('Join ${AppConstants.appName} to discover matching jobs',
                         style: TextStyle(color: AppTheme.textSecondary)),
                     const SizedBox(height: 40),
 

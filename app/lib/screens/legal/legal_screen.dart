@@ -213,8 +213,8 @@ class _PrivacyContent extends StatelessWidget {
         _PolicySection(
           '1. Introduction',
           [
-            'AutoApply ("we", "us", or "our") operates autoapplynow.in and the AutoApply web application. This Privacy Policy explains what information we collect, how we use it, and your rights regarding your data.',
-            'By using AutoApply you agree to the practices described in this policy. If you do not agree, please discontinue use immediately.',
+            'HirePanda ("we", "us", or "our") operates autoapplynow.in and the HirePanda web application. This Privacy Policy explains what information we collect, how we use it, and your rights regarding your data.',
+            'By using HirePanda you agree to the practices described in this policy. If you do not agree, please discontinue use immediately.',
           ],
         ),
         _PolicySection(
@@ -233,7 +233,7 @@ class _PrivacyContent extends StatelessWidget {
         _PolicySection(
           '3. Cookies & Local Storage',
           [
-            'AutoApply uses browser local storage (not traditional cookies) to persist your authentication token so you remain logged in across sessions. We do not use third-party advertising cookies.',
+            'HirePanda uses browser local storage (not traditional cookies) to persist your authentication token so you remain logged in across sessions. We do not use third-party advertising cookies.',
           ],
           bullets: [
             'auth_token: your session JWT, stored in localStorage and cleared on sign-out.',
@@ -250,12 +250,12 @@ class _PrivacyContent extends StatelessWidget {
         _PolicySection(
           '5. How We Use Your Data',
           [
-            'We use your information exclusively to provide and improve the AutoApply service.',
+            'We use your information exclusively to provide and improve the HirePanda service.',
           ],
           bullets: [
             'Authenticate you and keep your account secure.',
             'Personalise job discovery results using AI matching against your profile.',
-            'Auto-fill job application forms via the AutoApply Chrome Extension.',
+            'Auto-fill job application forms via the HirePanda Chrome Extension.',
             'Generate AI resume-tailoring suggestions against target job descriptions.',
             'Process payments and manage your subscription through Razorpay (India) or Lemon Squeezy (international).',
             'Send transactional emails (payment receipts, account alerts). We do not send unsolicited marketing emails.',
@@ -310,13 +310,13 @@ class _PrivacyContent extends StatelessWidget {
         _PolicySection(
           '11. Children\'s Privacy',
           [
-            'AutoApply is intended for users aged 18 and above. We do not knowingly collect data from children under 18. If you believe a child has created an account, please contact us immediately.',
+            'HirePanda is intended for users aged 18 and above. We do not knowingly collect data from children under 18. If you believe a child has created an account, please contact us immediately.',
           ],
         ),
         _PolicySection(
           '12. Changes to This Policy',
           [
-            'We may update this Privacy Policy from time to time. Material changes will be communicated via in-app notification or email. Continued use of AutoApply after changes constitutes acceptance.',
+            'We may update this Privacy Policy from time to time. Material changes will be communicated via in-app notification or email. Continued use of HirePanda after changes constitutes acceptance.',
           ],
         ),
       ],
@@ -338,14 +338,14 @@ class _TermsContent extends StatelessWidget {
         _PolicySection(
           '1. Acceptance of Terms',
           [
-            'By accessing or using AutoApply ("Service") at autoapplynow.in, you agree to be bound by these Terms & Conditions ("Terms"). If you do not agree, you must not use the Service.',
-            'These Terms form a legally binding agreement between you and AutoApply. We reserve the right to update them at any time; continued use after updates constitutes acceptance.',
+            'By accessing or using HirePanda ("Service") at autoapplynow.in, you agree to be bound by these Terms & Conditions ("Terms"). If you do not agree, you must not use the Service.',
+            'These Terms form a legally binding agreement between you and HirePanda. We reserve the right to update them at any time; continued use after updates constitutes acceptance.',
           ],
         ),
         _PolicySection(
           '2. Eligibility & Account',
           [
-            'You must be at least 18 years old to use AutoApply. By registering, you represent that all information you provide is accurate and that you are authorised to enter into this agreement.',
+            'You must be at least 18 years old to use HirePanda. By registering, you represent that all information you provide is accurate and that you are authorised to enter into this agreement.',
           ],
           bullets: [
             'You are responsible for maintaining the confidentiality of your account credentials.',
@@ -356,7 +356,7 @@ class _TermsContent extends StatelessWidget {
         _PolicySection(
           '3. Permitted Use',
           [
-            'AutoApply is a job-discovery and application-assistance tool for individual job seekers. You may use it solely for personal, non-commercial job-search purposes.',
+            'HirePanda is a job-discovery and application-assistance tool for individual job seekers. You may use it solely for personal, non-commercial job-search purposes.',
           ],
           bullets: [
             'Searching for jobs and tracking employer career pages.',
@@ -370,9 +370,9 @@ class _TermsContent extends StatelessWidget {
             'The following activities are strictly prohibited and may result in immediate account termination without refund:',
           ],
           bullets: [
-            'Scraping, harvesting, or bulk-downloading data from AutoApply or third-party sites via the Service.',
+            'Scraping, harvesting, or bulk-downloading data from HirePanda or third-party sites via the Service.',
             'Using the Service to submit applications on behalf of other individuals.',
-            'Reverse-engineering, decompiling, or creating derivative products from AutoApply.',
+            'Reverse-engineering, decompiling, or creating derivative products from HirePanda.',
             'Uploading false, misleading, or fraudulent profile information.',
             'Attempting to bypass rate limits, quotas, or access controls.',
             'Using automated bots or scripts to interact with the Service.',
@@ -382,7 +382,7 @@ class _TermsContent extends StatelessWidget {
         _PolicySection(
           '5. Subscription Terms',
           [
-            'AutoApply offers a Free plan and a Pro plan. Pro plans are available on monthly or yearly billing cycles.',
+            'HirePanda offers a Free plan and a Pro plan. Pro plans are available on monthly or yearly billing cycles.',
           ],
           bullets: [
             'Free plan: access is subject to daily usage quotas as displayed in the app.',
@@ -408,26 +408,26 @@ class _TermsContent extends StatelessWidget {
         _PolicySection(
           '7. AI-Generated Content',
           [
-            'AutoApply uses large language models (Azure OpenAI) to generate resume suggestions, job scores, and autofill answers. You acknowledge that:',
+            'HirePanda uses large language models (Azure OpenAI) to generate resume suggestions, job scores, and autofill answers. You acknowledge that:',
           ],
           bullets: [
             'AI outputs are suggestions only and may contain errors or inaccuracies.',
             'You are solely responsible for reviewing and verifying all AI-generated content before submitting it in any job application.',
-            'AutoApply does not guarantee that AI suggestions will improve your job-search outcomes.',
+            'HirePanda does not guarantee that AI suggestions will improve your job-search outcomes.',
           ],
         ),
         _PolicySection(
           '8. Third-Party Job Listings',
           [
-            'AutoApply surfaces job listings scraped from publicly available company career pages. We are not responsible for the accuracy, availability, or terms of any third-party job posting.',
-            'Applying for a job creates a direct relationship between you and the employer. AutoApply is not party to that relationship.',
+            'HirePanda surfaces job listings scraped from publicly available company career pages. We are not responsible for the accuracy, availability, or terms of any third-party job posting.',
+            'Applying for a job creates a direct relationship between you and the employer. HirePanda is not party to that relationship.',
           ],
         ),
         _PolicySection(
           '9. Intellectual Property',
           [
-            'All software, design, trademarks, and content on autoapplynow.in are owned by AutoApply or its licensors. You are granted a limited, non-exclusive, non-transferable licence to use the Service for personal job-search purposes.',
-            'Your profile data and uploaded resume remain your property. You grant AutoApply a licence to process them solely to provide the Service.',
+            'All software, design, trademarks, and content on autoapplynow.in are owned by HirePanda or its licensors. You are granted a limited, non-exclusive, non-transferable licence to use the Service for personal job-search purposes.',
+            'Your profile data and uploaded resume remain your property. You grant HirePanda a licence to process them solely to provide the Service.',
           ],
         ),
         _PolicySection(
@@ -444,8 +444,8 @@ class _TermsContent extends StatelessWidget {
         _PolicySection(
           '11. Disclaimers & Limitation of Liability',
           [
-            'AutoApply is provided "as is" without warranties of any kind. We do not guarantee continuous, error-free service or specific job-search outcomes.',
-            'To the maximum extent permitted by law, AutoApply\'s total liability to you for any claim arising from your use of the Service shall not exceed the amount you paid us in the 30 days preceding the claim.',
+            'HirePanda is provided "as is" without warranties of any kind. We do not guarantee continuous, error-free service or specific job-search outcomes.',
+            'To the maximum extent permitted by law, HirePanda\'s total liability to you for any claim arising from your use of the Service shall not exceed the amount you paid us in the 30 days preceding the claim.',
           ],
         ),
         _PolicySection(
@@ -479,14 +479,14 @@ class _RefundContent extends StatelessWidget {
         _PolicySection(
           '1. General Policy — No Refunds',
           [
-            'All payments made to AutoApply are final and non-refundable.',
+            'All payments made to HirePanda are final and non-refundable.',
             'By completing a purchase you acknowledge that you have reviewed the plan features and agree that no refund will be issued once payment is processed — whether for monthly or yearly subscriptions, regardless of usage.',
           ],
         ),
         _PolicySection(
           '2. Why We Have a No-Refund Policy',
           [
-            'AutoApply provides immediate access to AI-powered features upon payment. Because the full value of the subscription (unlimited job searches, AI autofill, resume tailoring) is made available instantly and is consumed progressively, we are unable to recover that value once granted.',
+            'HirePanda provides immediate access to AI-powered features upon payment. Because the full value of the subscription (unlimited job searches, AI autofill, resume tailoring) is made available instantly and is consumed progressively, we are unable to recover that value once granted.',
             'We encourage you to use the Free plan to evaluate the Service before upgrading to a paid plan.',
           ],
         ),

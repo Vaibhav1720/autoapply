@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:auto_apply/config/azure_config.dart';
+import 'package:auto_apply/config/constants.dart';
 import 'package:auto_apply/config/theme.dart';
 import 'package:auto_apply/providers/auth_provider.dart';
 import 'package:auto_apply/screens/main_shell.dart';
@@ -81,8 +82,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       ShaderMask(
                         shaderCallback: (r) =>
                             AppTheme.brandGradient.createShader(r),
-                        child: const Text(
-                          'Welcome to AutoApply',
+                        child: Text(
+                          'Welcome to ${AppConstants.appName}',
                           style: TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.w800,
@@ -143,8 +144,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         );
                       }),
                       const SizedBox(height: 18),
-                      const Text(
-                        'We use your Google account just to create your AutoApply profile.',
+                      Text(
+                        'We use your Google account just to create your ${AppConstants.appName} profile.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             color: AppTheme.textSecondary, fontSize: 12),

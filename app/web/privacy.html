@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AutoApply – Privacy Policy</title>
+  <title>HirePanda – Privacy Policy</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 760px; margin: 40px auto; padding: 0 20px; color: #111827; line-height: 1.6; }
     h1 { font-size: 28px; margin-bottom: 4px; }
@@ -13,29 +13,29 @@
   </style>
 </head>
 <body>
-  <h1>AutoApply Privacy Policy</h1>
+  <h1>HirePanda Privacy Policy</h1>
   <p class="muted">Last updated: May 2026</p>
 
   <h2>What we collect</h2>
-  <p>To autofill job applications, AutoApply stores the following data on our servers (Azure Cosmos DB and Azure Blob Storage, hosted in Microsoft data centers):</p>
+  <p>To autofill job applications, HirePanda stores the following data on our servers (Azure Cosmos DB and Azure Blob Storage, hosted in Microsoft data centers):</p>
   <ul>
     <li><strong>Account:</strong> your Google account email, display name, and the Google subject identifier (a stable, opaque ID) returned when you sign in. We do <em>not</em> receive your Google password.</li>
     <li><strong>Profile:</strong> resume (PDF/DOCX), and AI-extracted fields (skills, education, work history, contact details, address, links).</li>
     <li><strong>Application details</strong> you enter (work authorization, salary expectation, EEO answers, cover letter, etc.).</li>
-    <li><strong>Custom answers</strong> typed into the AutoApply ask-popup, indexed by question label, so we can re-use them on future applications.</li>
+    <li><strong>Custom answers</strong> typed into the HirePanda ask-popup, indexed by question label, so we can re-use them on future applications.</li>
     <li><strong>Usage:</strong> a per-day counter for free-tier rate limiting. No browsing history, no page content, no keystrokes.</li>
   </ul>
 
   <h2>What we do NOT collect</h2>
   <ul>
-    <li>The contents of pages you visit. The Chrome extension only reads form-field <em>labels</em> on the active tab when you click the AutoApply button — it does not stream the DOM to our servers.</li>
+    <li>The contents of pages you visit. The Chrome extension only reads form-field <em>labels</em> on the active tab when you click the HirePanda button — it does not stream the DOM to our servers.</li>
     <li>Personal data of recruiters, employers, or third parties on the page.</li>
     <li>Browsing history, cookies of other sites, passwords stored in the browser.</li>
   </ul>
 
   <h2>How we use it</h2>
   <ul>
-    <li><strong>Autofill:</strong> When you click AutoApply on a job page, the extension sends the field labels (e.g. "First name", "Visa status") to our backend, which returns matching values from your profile.</li>
+    <li><strong>Autofill:</strong> When you click HirePanda on a job page, the extension sends the field labels (e.g. "First name", "Visa status") to our backend, which returns matching values from your profile.</li>
     <li><strong>AI matching (optional):</strong> Field labels and your profile are sent to Azure AI Foundry (Microsoft) to suggest values for non-standard questions. No data is used to train AI models.</li>
     <li><strong>Job matching (optional):</strong> If you use the web app's discover feature, your resume embedding is compared against scraped job postings.</li>
   </ul>
@@ -52,15 +52,15 @@
 
   <h2>Permissions explained</h2>
   <ul>
-    <li><strong>activeTab + scripting:</strong> Run the autofill script only on the tab where you click the AutoApply button. The script is not pre-injected into any site.</li>
-    <li><strong>storage:</strong> Save your AutoApply session token locally in the browser.</li>
+    <li><strong>activeTab + scripting:</strong> Run the autofill script only on the tab where you click the HirePanda button. The script is not pre-injected into any site.</li>
+    <li><strong>storage:</strong> Save your HirePanda session token locally in the browser.</li>
     <li><strong>identity:</strong> Open the Google sign-in window via Chrome's built-in OAuth flow.</li>
     <li><strong>host_permissions (named career sites):</strong> Lets the popup ask for the form-field labels on supported career sites (Greenhouse, Lever, Workday, Ashby, Workable, SmartRecruiters, iCIMS, Eightfold, Netflix Jobs).</li>
-    <li><strong>optional_host_permissions (https://*/*):</strong> Requested only when you click AutoApply on a site we don't already support, so we can autofill there too. Granted by you on demand and revocable in <code>chrome://extensions</code>.</li>
+    <li><strong>optional_host_permissions (https://*/*):</strong> Requested only when you click HirePanda on a site we don't already support, so we can autofill there too. Granted by you on demand and revocable in <code>chrome://extensions</code>.</li>
   </ul>
 
   <h2>Google user data: limited use</h2>
-  <p>AutoApply's use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements. The only Google scopes we request are <code>openid email profile</code>, used solely to create and authenticate your AutoApply account. We never use Google data for advertising and we never transfer it to third parties except to provide or improve the service.</p>
+  <p>HirePanda's use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements. The only Google scopes we request are <code>openid email profile</code>, used solely to create and authenticate your HirePanda account. We never use Google data for advertising and we never transfer it to third parties except to provide or improve the service.</p>
 
   <h2>Contact</h2>
   <p>Questions or requests: <a href="mailto:techvibeapps.ai@gmail.com">techvibeapps.ai@gmail.com</a></p>

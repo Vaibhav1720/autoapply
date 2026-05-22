@@ -19,9 +19,6 @@ param cosmosAccountName string = 'myapp-cosmos-${env}'
 @description('Storage account name')
 param storageAccountName string = 'myappstor${env}'
 
-@description('Service Bus namespace name')
-param serviceBusName string = 'myapp-sb-${env}'
-
 @description('Function App name')
 param functionAppName string = 'myapp-func-${env}'
 
@@ -269,30 +266,6 @@ resource blobContainerResources 'Microsoft.Storage/storageAccounts/blobServices/
   }
 ]
 
-// ── Service Bus (Standard) ─────────────────────────────────────────────────
-
-resource serviceBusNamespace 'Microsoft.ServiceBus/namespaces@2022-10-01-preview' = {
-  name: serviceBusName
-  location: location
-  sku: { name: 'Standard', tier: 'Standard' }
-}
-
-resource serviceBusQueue 'Microsoft.ServiceBus/namespaces/queues@2022-10-01-preview' = {
-  parent: serviceBusNamespace
-  name: 'auto-apply-queue'
-  properties: {
-    maxDeliveryCount: 5
-    defaultMessageTimeToLive: 'P1D'
-    lockDuration: 'PT5M'
-  }
-}
-
-// Default root authorization rule (auto-created by the namespace) — referenced so we can call listKeys()
-resource serviceBusRootAuthRule 'Microsoft.ServiceBus/namespaces/authorizationRules@2022-10-01-preview' existing = {
-  parent: serviceBusNamespace
-  name: 'RootManageSharedAccessKey'
-}
-
 // ── AI Foundry (AIServices) ────────────────────────────────────────────────
 
 resource aiService 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
@@ -372,7 +345,6 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'COSMOS_KEY', value: cosmosAccount.listKeys().primaryMasterKey }
         { name: 'COSMOS_DATABASE', value: 'autoapply' }
         { name: 'BLOB_CONNECTION_STRING', value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value}' }
-        { name: 'SERVICEBUS_CONNECTION_STRING', value: serviceBusRootAuthRule.listKeys().primaryConnectionString }
         { name: 'AZURE_AI_ENDPOINT', value: aiService.properties.endpoint }
         { name: 'AZURE_AI_KEY', value: aiService.listKeys().key1 }
         { name: 'AI_RERANK_MODEL', value: aiRerankModel }
@@ -392,7 +364,6 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
 output functionAppUrl string = 'https://${functionApp.properties.defaultHostName}'
 output cosmosEndpoint string = cosmosAccount.properties.documentEndpoint
 output storageAccountName string = storageAccount.name
-output serviceBusNamespace string = serviceBusNamespace.name
 output appInsightsKey string = appInsights.properties.InstrumentationKey
 output aiServiceEndpoint string = aiService.properties.endpoint
 output aiServiceName string = aiService.name

@@ -210,8 +210,9 @@ pip install -r requirements.txt
     "LEMONSQUEEZY_API_KEY": "<from app.lemonsqueezy.com → Settings → API>",
     "LEMONSQUEEZY_STORE_ID": "<numeric Store ID from Settings → General>",
     "LEMONSQUEEZY_WEBHOOK_SECRET": "<generated when you create the webhook>",
-    "LEMONSQUEEZY_VARIANT_PRO_MONTHLY": "<numeric variant ID for $9.99/mo plan>",
-    "LEMONSQUEEZY_VARIANT_PRO_YEARLY": "<numeric variant ID for $89.99/yr plan>",
+    "LEMONSQUEEZY_VARIANT_PRO_WEEKLY": "<variant ID for $3.49/wk plan>",
+    "LEMONSQUEEZY_VARIANT_PRO_MONTHLY": "<variant ID for $9.99/mo plan>",
+    "LEMONSQUEEZY_VARIANT_PRO_YEARLY": "<variant ID for $89.99/yr plan>",
     "BILLING_SUCCESS_URL": "https://<your-static-web-app>.azurestaticapps.net/#/billing/success"
   },
   "Host": {
@@ -279,6 +280,7 @@ the Merchant of Record (they collect global VAT/GST/sales tax for you).
 | Plan         | Price    | Variant env var                  |
 | ------------ | -------- | -------------------------------- |
 | Free         | $0       | —                                |
+| Pro Weekly   | $3.49    | `LEMONSQUEEZY_VARIANT_PRO_WEEKLY`  |
 | Pro Monthly  | $9.99    | `LEMONSQUEEZY_VARIANT_PRO_MONTHLY` |
 | Pro Yearly   | $89.99   | `LEMONSQUEEZY_VARIANT_PRO_YEARLY`  |
 
@@ -318,6 +320,7 @@ the Merchant of Record (they collect global VAT/GST/sales tax for you).
        LEMONSQUEEZY_API_KEY="<key from step 5>" `
        LEMONSQUEEZY_STORE_ID="<store id from step 5>" `
        LEMONSQUEEZY_WEBHOOK_SECRET="<secret from step 6>" `
+       LEMONSQUEEZY_VARIANT_PRO_WEEKLY="<weekly variant id from step 4>" `
        LEMONSQUEEZY_VARIANT_PRO_MONTHLY="<monthly variant id from step 4>" `
        LEMONSQUEEZY_VARIANT_PRO_YEARLY="<yearly variant id from step 4>" `
        BILLING_SUCCESS_URL="https://<your-static-web-app>.azurestaticapps.net/#/billing/success"

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:auto_apply/services/api_service.dart';
+import 'package:auto_apply/utils/subscription_access.dart';
 
 /// Profile state — loads and updates the user profile as a raw Map.
 class ProfileProvider extends ChangeNotifier {
@@ -7,12 +8,25 @@ class ProfileProvider extends ChangeNotifier {
   ProfileProvider(this._api);
 
   Map<String, dynamic>? _profile;
+  String? _billingTier;
   bool _loading = false;
   String? _error;
 
   Map<String, dynamic>? get profile => _profile;
   bool get loading => _loading;
   String? get error => _error;
+
+  /// Profile tier, billing subscription, or admin allow-list email.
+  String get effectiveTier {
+    final email = (_profile?['email'] ?? '').toString();
+    if (isAdminEmail(email)) return 'admin';
+    final profileTier = tierFromProfile(_profile);
+    if (isPremiumTier(profileTier)) return profileTier;
+    if (isPremiumTier(_billingTier)) return _billingTier!;
+    return profileTier;
+  }
+
+  bool get isPremium => isPremiumTier(effectiveTier);
 
   // Convenience getters
   Map<String, dynamic> get personal => (_profile?['personal'] as Map<String, dynamic>?) ?? {};
@@ -32,8 +46,16 @@ class ProfileProvider extends ChangeNotifier {
     try {
       final resp = await _api.get('/api/v1/profile');
       _profile = Map<String, dynamic>.from(resp.data);
+      try {
+        final sub = await _api.get('/api/v1/billing/subscription');
+        final data = sub.data;
+        _billingTier = (data is Map ? data['tier'] : null)?.toString().toLowerCase();
+      } catch (_) {
+        _billingTier = null;
+      }
     } catch (e) {
       _error = e.toString();
+      _billingTier = null;
     }
     _loading = false;
     notifyListeners();

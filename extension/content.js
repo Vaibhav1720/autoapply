@@ -686,7 +686,7 @@
 
     // Label
     const label = document.createElement("span");
-    label.textContent = "AutoApply";
+    label.textContent = "HirePanda";
     label.style.fontWeight = "600";
     label.style.fontSize = "13px";
     label.style.transition = "opacity 0.2s, width 0.3s, margin 0.3s";
@@ -806,7 +806,7 @@
       label.textContent = "Filling…";
       doSmartFill().then((result) => {
         btn.style.opacity = "1";
-        label.textContent = "AutoApply";
+        label.textContent = "HirePanda";
         if (result.filled > 0) {
           showToast(`Filled ${result.filled} fields${result.aiCount ? ` (${result.aiCount} via AI)` : ""}. Review and submit!`, true);
         } else if (result.error) {
@@ -817,7 +817,7 @@
         resetAutoCollapse();
       }).catch(() => {
         btn.style.opacity = "1";
-        label.textContent = "AutoApply";
+        label.textContent = "HirePanda";
       });
     });
 

@@ -16,6 +16,7 @@ import 'dart:html' as html;
 import 'package:auto_apply/config/theme.dart';
 import 'package:auto_apply/providers/profile_provider.dart';
 import 'package:auto_apply/services/api_service.dart';
+import 'package:auto_apply/utils/subscription_access.dart';
 
 class PricingScreen extends StatefulWidget {
   const PricingScreen({super.key});
@@ -32,8 +33,8 @@ class _PricingScreenState extends State<PricingScreen> {
   List<Map<String, dynamic>> _plans = const [];
   Map<String, dynamic> _sub = const {};
   bool _isIndia = false;
-  // "one_time" or "recurring" — only relevant for India / Razorpay
-  String _paymentType = 'one_time';
+  // "one_time" or "recurring"
+  String _paymentType = 'recurring';
 
   @override
   void initState() {
@@ -55,6 +56,9 @@ class _PricingScreenState extends State<PricingScreen> {
     });
     try {
       final api = context.read<ApiService>();
+      try {
+        await context.read<ProfileProvider>().loadProfile();
+      } catch (_) {}
       final country = _userCountry;
       final plansResp = await api.get(
         '/api/v1/billing/plans',
@@ -96,11 +100,11 @@ class _PricingScreenState extends State<PricingScreen> {
           ? '/api/v1/billing/razorpay/checkout'
           : '/api/v1/billing/checkout';
 
-      // Send paymentType for both Razorpay and Lemon Squeezy
-      final body = <String, dynamic>{
-        'planId': plan['id'],
-        'paymentType': _paymentType,
-      };
+      final body = <String, dynamic>{'planId': plan['id']};
+      // India (Razorpay) supports one-time vs subscription toggle
+      if (_isIndia) {
+        body['paymentType'] = _paymentType;
+      }
 
       final resp = await api.post(endpoint, data: body);
       final url = (resp.data?['url'] ?? '').toString();
@@ -122,9 +126,9 @@ class _PricingScreenState extends State<PricingScreen> {
       String msg;
       final s = e.toString();
       if (s.contains('503') || s.contains('PAYMENT_UNAVAILABLE')) {
-        msg = _paymentType == 'one_time'
-            ? 'One-time payment is not yet configured for this plan. Please use the recurring subscription option or contact support.'
-            : 'Recurring subscriptions are being set up. Please try again soon or contact support.';
+        msg = _isIndia && _paymentType == 'one_time'
+            ? 'One-time payment is not yet configured for this plan. Please use the subscription option or contact support.'
+            : 'Checkout is being set up. Please try again soon or contact support.';
       } else {
         msg = 'Checkout failed: $s';
       }
@@ -141,13 +145,21 @@ class _PricingScreenState extends State<PricingScreen> {
     }
   }
 
-  bool get _isPro {
-    final tier = (_sub['tier'] ?? '').toString().toLowerCase();
-    return tier == 'pro' || tier == 'lifetime' || tier == 'admin';
+  bool get _isCancelled {
+    final s = (_sub['status'] ?? '').toString().toLowerCase();
+    return s == 'cancelled' || s == 'expired';
+  }
+
+  /// Pro/admin from ProfileProvider (profile + billing + admin email) or billing snapshot.
+  bool _isProUser(ProfileProvider pp) {
+    return pp.isPremium || isPremiumTier((_sub['tier'] ?? '').toString());
   }
 
   @override
   Widget build(BuildContext context) {
+    final pp = context.watch<ProfileProvider>();
+    final isPro = _isProUser(pp);
+    final hasActivePro = isPro && !_isCancelled;
     final width = MediaQuery.of(context).size.width;
     final isWide = width >= 900;
 
@@ -169,16 +181,21 @@ class _PricingScreenState extends State<PricingScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            _Header(isPro: _isPro, sub: _sub, isIndia: _isIndia),
+                            _Header(
+                              isPro: isPro,
+                              cancelled: _isCancelled,
+                              sub: _sub,
+                              isIndia: _isIndia,
+                            ),
                             const SizedBox(height: 24),
-                            // Payment type toggle — shown for all users
-                            if (!_isPro)
+                            // Payment type toggle — India (Razorpay) only
+                            if (!hasActivePro && _isIndia) ...[
                               _PaymentTypeToggle(
                                 value: _paymentType,
-                                isIndia: _isIndia,
                                 onChanged: (v) => setState(() => _paymentType = v),
                               ),
-                            if (!_isPro) const SizedBox(height: 20),
+                              const SizedBox(height: 20),
+                            ],
                             isWide
                                 ? IntrinsicHeight(
                                     child: Row(
@@ -192,9 +209,10 @@ class _PricingScreenState extends State<PricingScreen> {
                                                 plan: p,
                                                 isCurrent: _isCurrent(p),
                                                 isBusy: _busyPlanId == p['id'] && _checkoutBusy,
-                                                isPro: _isPro,
+                                                isPro: hasActivePro,
                                                 isIndia: _isIndia,
                                                 paymentType: _paymentType,
+                                                resubscribe: _isCancelled,
                                                 onSubscribe: () => _startCheckout(p),
                                               ),
                                             ),
@@ -211,9 +229,10 @@ class _PricingScreenState extends State<PricingScreen> {
                                             plan: p,
                                             isCurrent: _isCurrent(p),
                                             isBusy: _busyPlanId == p['id'] && _checkoutBusy,
-                                            isPro: _isPro,
+                                            isPro: hasActivePro,
                                             isIndia: _isIndia,
                                             paymentType: _paymentType,
+                                            resubscribe: _isCancelled,
                                             onSubscribe: () => _startCheckout(p),
                                           ),
                                         ),
@@ -232,10 +251,12 @@ class _PricingScreenState extends State<PricingScreen> {
   }
 
   bool _isCurrent(Map<String, dynamic> plan) {
+    if (_isCancelled) return false;
     final id = (plan['id'] ?? '').toString();
     final tier = (_sub['tier'] ?? '').toString().toLowerCase();
     final interval = (_sub['interval'] ?? '').toString().toLowerCase();
     if (id == 'free' && tier == 'free') return true;
+    if (id == 'pro_weekly' && tier == 'pro' && interval.startsWith('week')) return true;
     if (id == 'pro_monthly' && tier == 'pro' && interval.startsWith('month')) return true;
     if (id == 'pro_yearly' && tier == 'pro' && interval.startsWith('year')) return true;
     return false;
@@ -247,16 +268,26 @@ class _PricingScreenState extends State<PricingScreen> {
 
 class _Header extends StatelessWidget {
   final bool isPro;
+  final bool cancelled;
   final bool isIndia;
   final Map<String, dynamic> sub;
-  const _Header({required this.isPro, required this.sub, required this.isIndia});
+  const _Header({
+    required this.isPro,
+    required this.cancelled,
+    required this.sub,
+    required this.isIndia,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
         Text(
-          isPro ? 'You\'re on AutoApply Pro \ud83c\udf89' : 'Find your next job, faster',
+          cancelled
+              ? 'Your Pro plan was cancelled'
+              : isPro
+                  ? 'You\'re on HirePanda Pro \ud83c\udf89'
+                  : 'Find your next job, faster',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                 fontWeight: FontWeight.w700,
@@ -265,7 +296,9 @@ class _Header extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          isPro
+          cancelled
+              ? 'Pick a plan below to subscribe again. You keep Pro access until the date shown.'
+              : isPro
               ? 'All Pro features are unlocked. Manage your subscription anytime.'
               : isIndia
                   ? 'Cancel any time \u2022 30-day money-back guarantee \u2022 Secure checkout via Razorpay'
@@ -347,6 +380,7 @@ class _PlanCard extends StatelessWidget {
   final bool isPro;
   final bool isIndia;
   final String paymentType;
+  final bool resubscribe;
   final VoidCallback onSubscribe;
 
   const _PlanCard({
@@ -356,6 +390,7 @@ class _PlanCard extends StatelessWidget {
     required this.isPro,
     required this.isIndia,
     required this.paymentType,
+    required this.resubscribe,
     required this.onSubscribe,
   });
 
@@ -504,21 +539,30 @@ class _PlanCard extends StatelessWidget {
         child: const Text('Current plan'),
       );
     }
-    // Build dynamic CTA label based on payment type
+    if (resubscribe && plan['id'] != 'free') {
+      final interval = (plan['interval'] as String?) ?? 'month';
+      final periodShort = _periodShort(interval);
+      final priceStr = isIndia
+          ? '₹${(plan['priceInr'] as num?)?.toStringAsFixed(0) ?? ''}'
+          : '\$${(plan['priceUsd'] as num?)?.toStringAsFixed(2) ?? ''}';
+      final suffix = isIndia && paymentType == 'one_time' ? '' : '/$periodShort';
+      return FilledButton(
+        onPressed: onSubscribe,
+        style: FilledButton.styleFrom(backgroundColor: AppTheme.primary),
+        child: Text('Subscribe again — $priceStr$suffix'),
+      );
+    }
     final String ctaLabel;
     final interval = (plan['interval'] as String?) ?? 'month';
-    final periodShort = interval == 'year' ? 'yr' : 'mo';
+    final periodShort = _periodShort(interval);
     if (isIndia && (plan['paymentProvider'] as String?) == 'razorpay') {
       final priceStr = '₹${(plan['priceInr'] as num?)?.toStringAsFixed(0) ?? ''}';
-      ctaLabel = paymentType == 'recurring'
-          ? 'Subscribe — $priceStr/$periodShort'
-          : 'Pay once — $priceStr';
+      ctaLabel = paymentType == 'one_time'
+          ? 'Pay once — $priceStr'
+          : 'Subscribe — $priceStr/$periodShort';
     } else {
-      // Lemon Squeezy — also adapt label
       final priceStr = '\$${(plan['priceUsd'] as num?)?.toStringAsFixed(2) ?? ''}';
-      ctaLabel = paymentType == 'recurring'
-          ? 'Subscribe — $priceStr/$periodShort'
-          : 'Pay once — $priceStr';
+      ctaLabel = 'Subscribe — $priceStr/$periodShort';
     }
 
     return FilledButton(
@@ -532,15 +576,24 @@ class _PlanCard extends StatelessWidget {
   }
 }
 
-// ── Payment type toggle ───────────────────────────────────────────────────
+String _periodShort(String interval) {
+  switch (interval) {
+    case 'year':
+      return 'yr';
+    case 'week':
+      return 'wk';
+    default:
+      return 'mo';
+  }
+}
+
+// ── Payment type toggle (India / Razorpay only) ───────────────────────────
 
 class _PaymentTypeToggle extends StatelessWidget {
   final String value;
-  final bool isIndia;
   final ValueChanged<String> onChanged;
   const _PaymentTypeToggle({
     required this.value,
-    required this.isIndia,
     required this.onChanged,
   });
 
@@ -567,19 +620,19 @@ class _PaymentTypeToggle extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               _ToggleOption(
-                label: 'One-time payment',
-                sublabel: 'No auto-renewal',
-                icon: Icons.payment_rounded,
-                selected: value == 'one_time',
-                onTap: () => onChanged('one_time'),
-              ),
-              const SizedBox(width: 4),
-              _ToggleOption(
-                label: 'Auto-renewing',
-                sublabel: 'Cancel anytime',
+                label: 'Subscription',
+                sublabel: 'Renews each period',
                 icon: Icons.autorenew_rounded,
                 selected: value == 'recurring',
                 onTap: () => onChanged('recurring'),
+              ),
+              const SizedBox(width: 4),
+              _ToggleOption(
+                label: 'One-time payment',
+                sublabel: 'Single period only',
+                icon: Icons.payment_rounded,
+                selected: value == 'one_time',
+                onTap: () => onChanged('one_time'),
               ),
             ],
           ),
@@ -587,10 +640,8 @@ class _PaymentTypeToggle extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           value == 'one_time'
-              ? 'Pay for one period. Access expires at the end — no charges after.'
-              : isIndia
-                  ? 'Auto-renews via Razorpay each period. Cancel anytime from your profile.'
-                  : 'Auto-renews via Lemon Squeezy each period. Cancel anytime from your profile.',
+              ? 'Pay for one period. Access expires at the end — no further charges.'
+              : 'Billed each period via Razorpay. Cancel anytime from your profile.',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           textAlign: TextAlign.center,
         ),

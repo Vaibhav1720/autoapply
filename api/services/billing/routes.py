@@ -58,7 +58,7 @@ _FREE_PLAN: dict = {
     "priceUsd": 0,
     "priceInr": 0,
     "interval": "—",
-    "tagline": "Try AutoApply with limited daily quotas",
+    "tagline": "Try HirePanda with limited daily quotas",
     "features": [
         "2 Discover searches / day",
         "2 LinkedIn searches / day",
@@ -69,9 +69,29 @@ _FREE_PLAN: dict = {
     "ctaLabel": "Current plan",
 }
 
-# International (USD) — Lemon Squeezy
+# International (USD) — Lemon Squeezy (subscription variants only)
 PLANS_USD: list[dict] = [
     _FREE_PLAN,
+    {
+        "id": "pro_weekly",
+        "name": "Pro Weekly",
+        "tier": "pro",
+        "priceUsd": 3.49,
+        "interval": "week",
+        "tagline": "Full Pro access, billed every week",
+        "features": [
+            "Unlimited Discover searches",
+            "Unlimited LinkedIn searches",
+            "Unlimited AI autofill",
+            "Track up to 50 companies",
+            "Advanced AI resume tailoring",
+            "Priority support",
+            "Cancel anytime",
+        ],
+        "ctaLabel": "Upgrade — $3.49/wk",
+        "paymentProvider": "lemonsqueezy",
+        "lsVariantEnv": "LEMONSQUEEZY_VARIANT_PRO_WEEKLY",
+    },
     {
         "id": "pro_monthly",
         "name": "Pro Monthly",
@@ -84,17 +104,13 @@ PLANS_USD: list[dict] = [
             "Unlimited LinkedIn searches",
             "Unlimited AI autofill",
             "Track up to 50 companies",
-            "Advanced resume tailoring (top 50 jobs)",
+            "Advanced AI resume tailoring",
             "Priority support",
             "Cancel anytime",
         ],
         "ctaLabel": "Upgrade — $9.99/mo",
         "paymentProvider": "lemonsqueezy",
-        # Recurring subscription variant (already created in LS)
         "lsVariantEnv": "LEMONSQUEEZY_VARIANT_PRO_MONTHLY",
-        # One-time purchase variant — set LEMONSQUEEZY_VARIANT_PRO_MONTHLY_ONCE in Azure
-        # Create as a one-time product in LS Dashboard → Products → + New Product
-        "lsVariantEnvOnce": "LEMONSQUEEZY_VARIANT_PRO_MONTHLY_ONCE",
     },
     {
         "id": "pro_yearly",
@@ -112,7 +128,6 @@ PLANS_USD: list[dict] = [
         "ctaLabel": "Upgrade — $89.99/yr",
         "paymentProvider": "lemonsqueezy",
         "lsVariantEnv": "LEMONSQUEEZY_VARIANT_PRO_YEARLY",
-        "lsVariantEnvOnce": "LEMONSQUEEZY_VARIANT_PRO_YEARLY_ONCE",
         "highlight": True,
     },
 ]
@@ -133,7 +148,7 @@ PLANS_INR: list[dict] = [
             "Unlimited LinkedIn searches",
             "Unlimited AI autofill",
             "Track up to 50 companies",
-            "Advanced resume tailoring (top 50 jobs)",
+            "Advanced AI resume tailoring",
             "Priority support",
             "Cancel anytime",
         ],
@@ -408,15 +423,9 @@ def create_checkout(req: func.HttpRequest) -> func.HttpResponse:
     """Create a hosted Lemon Squeezy checkout (international / non-India only).
 
     Body:
-      {
-        "planId":      "pro_monthly" | "pro_yearly",
-        "paymentType": "one_time" | "recurring"   (default: "recurring")
-      }
+      { "planId": "pro_weekly" | "pro_monthly" | "pro_yearly" }
 
-    paymentType = "recurring" → Lemon Squeezy subscription variant (auto-renews)
-    paymentType = "one_time"  → Lemon Squeezy one-time purchase variant
-                                 Requires LEMONSQUEEZY_VARIANT_PRO_MONTHLY_ONCE /
-                                          LEMONSQUEEZY_VARIANT_PRO_YEARLY_ONCE env vars.
+    Lemon Squeezy checkout is subscription-only (auto-renews each period).
 
     Rejects requests from Indian IPs — they must use /billing/razorpay/checkout.
     """
@@ -433,9 +442,6 @@ def create_checkout(req: func.HttpRequest) -> func.HttpResponse:
 
         body = req.get_json() if req.get_body() else {}
         plan_id = (body.get("planId") or "").strip()
-        payment_type = (body.get("paymentType") or "recurring").strip().lower()
-        if payment_type not in ("one_time", "recurring"):
-            raise ValidationError("paymentType must be 'one_time' or 'recurring'")
         if not plan_id:
             raise ValidationError("planId is required")
 
@@ -443,24 +449,12 @@ def create_checkout(req: func.HttpRequest) -> func.HttpResponse:
         if not plan or plan["id"] == "free":
             raise ValidationError(f"Unknown or non-purchasable plan: {plan_id}")
 
-        # Pick the correct variant based on payment type
-        if payment_type == "one_time":
-            env_key = plan.get("lsVariantEnvOnce") or ""
-            variant = os.environ.get(env_key, "").strip() if env_key else ""
-            if not variant:
-                raise AppException(
-                    "One-time payment is not yet configured for this plan. "
-                    "Please use recurring subscription or contact support.",
-                    code="PAYMENT_UNAVAILABLE",
-                    status_code=503,
-                )
-        else:
-            variant = _variant_for_plan(plan)
-            if not variant:
-                raise ValidationError(
-                    "Plan is not configured for purchase — missing variant id "
-                    "(set the matching LEMONSQUEEZY_VARIANT_* env var)"
-                )
+        variant = _variant_for_plan(plan)
+        if not variant:
+            raise ValidationError(
+                "Plan is not configured for purchase — missing variant id "
+                "(set the matching LEMONSQUEEZY_VARIANT_* env var)"
+            )
 
         profile = read_item("profiles", user_id, user_id) or {}
         personal = profile.get("personal") or {}
@@ -496,7 +490,7 @@ def create_checkout(req: func.HttpRequest) -> func.HttpResponse:
         return success_response({
             "url": result["url"],
             "expiresAt": result.get("expires_at"),
-            "paymentType": payment_type,
+            "paymentType": "recurring",
         })
     except AppException as e:
         return error_response(e)
@@ -951,7 +945,13 @@ def _handle_event(event: str, user_id: str, attrs: dict, ls_obj_id: str, raw_pay
         total = attrs.get("total_formatted") or attrs.get("subtotal_formatted") or ""
         if not total and attrs.get("subtotal") is not None:
             total = f"${round(int(attrs['subtotal']) / 100, 2)}"
-        interval = "year" if "year" in (variant or "").lower() else "month"
+        vlow = (variant or "").lower()
+        if "year" in vlow:
+            interval = "year"
+        elif "week" in vlow:
+            interval = "week"
+        else:
+            interval = "month"
         _notify_payment_receipt(
             user_id,
             plan_name=variant,
@@ -1001,6 +1001,8 @@ def _upsert_subscription(
     variant_name = (attrs.get("variant_name") or "").lower()
     if "year" in variant_name:
         interval = "year"
+    elif "week" in variant_name:
+        interval = "week"
     elif "month" in variant_name:
         interval = "month"
 

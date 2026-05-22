@@ -8,11 +8,14 @@ import 'dart:math' as math;
 import 'dart:convert';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
+import 'package:auto_apply/config/constants.dart';
 import 'package:auto_apply/config/theme.dart';
+import 'package:auto_apply/utils/pricing_copy.dart';
 import 'package:auto_apply/services/api_service.dart';
 import 'package:auto_apply/providers/profile_provider.dart';
 import 'package:auto_apply/widgets/simple_markdown.dart';
 import 'package:auto_apply/widgets/profile_guards.dart';
+import 'package:auto_apply/widgets/tailor_resume_dialog.dart';
 import 'package:auto_apply/data/search_taxonomy.dart';
 
 class DiscoverScreen extends StatefulWidget {
@@ -498,7 +501,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       if (limits != null && usage != null) {
         final discoverLimit = limits['discovers'] as int? ?? 999;
         final discoverUsed = usage['discovers'] as int? ?? 0;
-        if (discoverUsed >= discoverLimit && usageData['tier'] == 'free') {
+        final pp = context.read<ProfileProvider>();
+        if (!pp.isPremium &&
+            discoverUsed >= discoverLimit &&
+            usageData['tier'] == 'free') {
           if (mounted) setState(() => _loading = false);
           _showUpgradePopup(context, usageData['upgradeMessage']?.toString() ?? '');
           return;
@@ -925,7 +931,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       if (limits != null && usage != null) {
         final liLimit = limits['linkedin'] as int? ?? 999;
         final liUsed = usage['linkedin'] as int? ?? 0;
-        if (liUsed >= liLimit && usageData['tier'] == 'free') {
+        final pp = context.read<ProfileProvider>();
+        if (!pp.isPremium &&
+            liUsed >= liLimit &&
+            usageData['tier'] == 'free') {
           _showUpgradePopup(context, usageData['upgradeMessage']?.toString() ?? '');
           return;
         }
@@ -1076,10 +1085,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   void _showUpgradePopup(BuildContext ctx, String serverMessage) {
     final pp = context.read<ProfileProvider>();
+    if (pp.isPremium) return;
     final country = ((pp.profile?['applicationDetails'] as Map?)?['country'] as String? ?? '')
         .trim()
         .toUpperCase();
-    final isIndia = country == 'IN' || country == 'IND' || country == 'INDIA';
+    final isIndia = isIndiaCountry(country);
 
     showDialog(
       context: ctx,
@@ -1134,10 +1144,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 child: Column(
                   children: [
                     Text(
-                      isIndia ? 'From \u20b9199/month' : 'From \$9.99/month',
-                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFF6366f1)),
+                      upgradePriceHighlight(isIndia: isIndia),
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF6366f1)),
+                      textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 6),
                     Text(
                       isIndia
                           ? 'Save 25% with the yearly plan (\u20b91,799)'
@@ -1257,6 +1268,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     if (!await ensureResumeUploaded(context, action: 'tailor your resume')) {
       return;
     }
+
+    final picked = await showTailorResumeDialog(
+      context,
+      initialIndustryId: _industryId,
+      initialTitles: List<String>.from(_titles),
+    );
+    if (picked == null || !mounted) return;
+
     final jobs = <Map<String, dynamic>>[];
     for (final g in _grouped) {
       final js = g['jobs'];
@@ -1291,10 +1310,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     setState(() => _suggesting = true);
     try {
       final api = context.read<ApiService>();
+      final titles = picked.titles;
       final body = <String, dynamic>{
-        'targetRole': _titles.isNotEmpty ? _titles.first : '',
-        'targetTitles': _titles,
-        'industry': _industryId,
+        'targetRole': titles.isNotEmpty ? titles.first : '',
+        'targetTitles': titles,
+        'industry': picked.industry,
       };
       if (topJobs.isNotEmpty) body['jobs'] = topJobs;
       final resp = await api.post('/api/v1/resume/suggest-improvements', data: body, options: Options(
@@ -2553,18 +2573,18 @@ class _HeroSearch extends StatelessWidget {
               ),
               SizedBox(height: isCompact ? 10 : 14),
 
-              // Headline — short, single line on desktop, gradient accent.
+              // Tagline — gradient accent.
               ShaderMask(
                 shaderCallback: (r) =>
                     AppTheme.brandGradient.createShader(r),
                 child: Text(
-                  'We find and apply for you.',
+                  AppConstants.tagline,
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: isCompact ? 26 : 36,
+                    fontSize: isCompact ? 22 : 28,
                     fontWeight: FontWeight.w800,
-                    height: 1.05,
-                    letterSpacing: -1.0,
+                    height: 1.1,
+                    letterSpacing: -0.5,
                     color: Colors.white,
                   ),
                 ),
@@ -3482,29 +3502,35 @@ class _SearchProgressOverlayState extends State<_SearchProgressOverlay>
     return Positioned.fill(
       child: FadeTransition(
         opacity: curve,
-        child: AnimatedBuilder(
-          animation: backdropAlpha,
-          builder: (context, child) => Material(
-            color: Colors.black.withValues(alpha: backdropAlpha.value),
-            child: child,
-          ),
-          child: SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                child: FadeTransition(
-                  opacity: curve,
-                  child: ScaleTransition(
-                    scale: Tween<double>(begin: 0.92, end: 1.0).animate(curve),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 580),
-                      child: widget.child,
+        child: Stack(
+          children: [
+            // Visual dim only — clicks pass through to hero / Tailor my resume.
+            IgnorePointer(
+              child: AnimatedBuilder(
+                animation: backdropAlpha,
+                builder: (context, _) => Material(
+                  color: Colors.black.withValues(alpha: backdropAlpha.value),
+                ),
+              ),
+            ),
+            SafeArea(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                  child: FadeTransition(
+                    opacity: curve,
+                    child: ScaleTransition(
+                      scale: Tween<double>(begin: 0.92, end: 1.0).animate(curve),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 580),
+                        child: widget.child,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -4429,7 +4455,7 @@ void _showJobApplySheet(BuildContext context, String title, String company, Stri
                   Icon(Icons.extension_outlined, size: 16, color: Color(0xFF92400E)),
                   SizedBox(width: 6),
                   Expanded(child: Text(
-                    'Install the AutoApply Chrome extension to autofill this form.',
+                    'Install the HirePanda Chrome extension to autofill this form.',
                     style: TextStyle(fontSize: 12, color: Color(0xFF92400E)),
                   )),
                 ]),
@@ -4478,12 +4504,12 @@ void _showJobApplySheet(BuildContext context, String title, String company, Stri
                 const Row(children: [
                   Icon(Icons.info_outline, size: 16, color: AppTheme.textSecondary),
                   SizedBox(width: 6),
-                  Text('How to use AutoApply', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  Text('How to use HirePanda', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                 ]),
                 const SizedBox(height: 8),
                 _guideStep('1', 'Install the Chrome extension (one-time)', Icons.extension),
                 _guideStep('2', 'Click "Apply with Autofill" above — opens the job page', Icons.open_in_new),
-                _guideStep('3', 'Click the AutoApply icon in Chrome toolbar', Icons.touch_app),
+                _guideStep('3', 'Click the HirePanda icon in Chrome toolbar', Icons.touch_app),
                 _guideStep('4', 'Your resume info fills the form automatically', Icons.auto_fix_high),
                 const SizedBox(height: 8),
                 InkWell(

@@ -24,14 +24,16 @@
     "SMTP_PASSWORD": "<gmail-app-password — Google Account → Security → App passwords>",
     "SMTP_FROM": "techvibeapps.ai@gmail.com",
     "SUPPORT_EMAIL": "techvibeapps.ai@gmail.com",
-    "APP_NAME": "AutoApply",
+    "APP_NAME": "HirePanda",
     "APP_URL": "https://autoapplynow.in",
     "EXPIRY_REMINDER_DAYS": "3",
     "EXPIRY_REMINDER_CRON": "0 0 9 * * *",
     "RAZORPAY_KEY_ID": "rzp_test_xxxxxxxx",
     "RAZORPAY_KEY_SECRET": "<from Razorpay Dashboard → API Keys (Test mode)>",
     "RAZORPAY_WEBHOOK_SECRET": "<secret you choose when adding webhook in dashboard>",
-    "BILLING_SUCCESS_URL": "https://autoapplynow.in/billing/success"
+    "BILLING_SUCCESS_URL": "https://autoapplynow.in/billing/success",
+    "HARVEST_ENABLED": "0",
+    "HARVEST_CRON": "0 */30 * * * *"
   },
   "Host": {
     "CORS": "*",

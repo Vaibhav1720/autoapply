@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:auto_apply/config/constants.dart';
 import 'package:auto_apply/config/theme.dart';
 import 'package:auto_apply/config/routes.dart';
 import 'package:auto_apply/services/api_service.dart';
@@ -22,7 +23,7 @@ class AutoApplyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ProfileProvider(api)),
       ],
       child: MaterialApp.router(
-        title: 'AutoApply',
+        title: AppConstants.appName,
         theme: AppTheme.lightTheme,
         routerConfig: appRouter,
         debugShowCheckedModeBanner: false,

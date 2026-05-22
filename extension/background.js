@@ -1,6 +1,6 @@
 /* background.js — AutoApply Chrome Extension service worker */
 
-// Production backend (Flex Consumption Function App). The Flutter web app at
+// Production backend (Azure Functions Consumption). The Flutter web app at
 // mango-ocean-0f1de6810.2.azurestaticapps.net points to the same host, so a
 // Google sign-in on either surface produces the same userId/profile/resume.
 const DEFAULT_API_BASE = "https://autoapply-func-dev.azurewebsites.net";

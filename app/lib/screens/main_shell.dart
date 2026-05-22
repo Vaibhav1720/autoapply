@@ -271,50 +271,43 @@ class _NavPillState extends State<_NavPill> {
   }
 }
 
-/// Brand mark — gradient rounded square with a lightning bolt + wordmark.
-/// Drawn entirely with Flutter primitives — no image asset, no licensing.
+/// HirePanda circular mark + optional wordmark (no banner on page body).
 class BrandMark extends StatelessWidget {
   final bool showWordmark;
   const BrandMark({super.key, this.showWordmark = true});
 
+  static const _markAsset = 'assets/images/hirepanda_mark.png';
+
   @override
   Widget build(BuildContext context) {
+    final size = showWordmark ? 36.0 : 40.0;
+    final mark = ClipOval(
+      child: Image.asset(
+        _markAsset,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.high,
+      ),
+    );
+    if (!showWordmark) return mark;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            gradient: AppTheme.brandGradient,
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.primaryBright.withOpacity(0.35),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: const Center(
-            child: Icon(Icons.bolt_rounded, color: Colors.white, size: 20),
-          ),
-        ),
-        if (showWordmark) ...[
-          const SizedBox(width: 10),
-          ShaderMask(
-            shaderCallback: (r) => AppTheme.brandGradient.createShader(r),
-            child: const Text(
-              'AutoApply',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.4,
-                color: Colors.white,
-              ),
+        mark,
+        const SizedBox(width: 10),
+        ShaderMask(
+          shaderCallback: (r) => AppTheme.brandGradient.createShader(r),
+          child: const Text(
+            'HirePanda',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.4,
+              color: Colors.white,
             ),
           ),
-        ],
+        ),
       ],
     );
   }
