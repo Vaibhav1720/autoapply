@@ -66,6 +66,23 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   bool get _isRazorpay => _provider == 'razorpay';
   bool get _isOneTime => _paymentType == 'one_time';
 
+  String _cancelledHint(Map<String, dynamic> sub) {
+    final ends = (sub['endsAt'] ?? '').toString();
+    final renews = (sub['renewsAt'] ?? '').toString();
+    final raw = ends.isNotEmpty ? ends : renews;
+    if (raw.isEmpty) {
+      return 'Your subscription is cancelled. Pro stays active until the end of your paid period — subscribe again to keep it after that.';
+    }
+    try {
+      final dt = DateTime.parse(raw).toLocal();
+      final label =
+          '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      return 'Your subscription is cancelled. Pro stays active until $label — subscribe again to keep it after that.';
+    } catch (_) {
+      return 'Your subscription is cancelled. Pro stays active until $raw — subscribe again to keep it after that.';
+    }
+  }
+
   Future<void> _openPortal() async {
     if (_busy) return;
 
@@ -223,7 +240,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                 ),
                                 const SizedBox(height: 12),
                                 Text(
-                                  'Your subscription is cancelled. Pro stays active until the access date above — subscribe again to keep it after that.',
+                                  _cancelledHint(_sub),
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     fontSize: 13,
@@ -359,9 +376,10 @@ class _PlanCard extends StatelessWidget {
               _row('Price', '₹${sub['priceInr']}')
             else if ((sub['priceUsd'] ?? '').toString().isNotEmpty)
               _row('Price', '\$${sub['priceUsd']}'),
-            if (cancelled && (sub['endsAt'] ?? '').toString().isNotEmpty)
-              _row('Access until', _fmt(sub['endsAt'])),
-            if (!cancelled && (sub['renewsAt'] ?? '').toString().isNotEmpty)
+            if (cancelled) ...[
+              if (_accessUntil(sub).isNotEmpty)
+                _row('Access until', _fmt(_accessUntil(sub))),
+            ] else if ((sub['renewsAt'] ?? '').toString().isNotEmpty)
               _row((sub['paymentType'] ?? '') == 'one_time' ? 'Expires on' : 'Next renewal',
                   _fmt(sub['renewsAt'])),
           ] else ...[
@@ -374,6 +392,12 @@ class _PlanCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _accessUntil(Map<String, dynamic> sub) {
+    final ends = (sub['endsAt'] ?? '').toString();
+    if (ends.isNotEmpty) return ends;
+    return (sub['renewsAt'] ?? '').toString();
   }
 
   String _statusLabel() {

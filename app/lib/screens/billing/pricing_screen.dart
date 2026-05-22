@@ -403,8 +403,22 @@ class _Header extends StatelessWidget {
     required this.isIndia,
   });
 
+  String? get _accessUntilRaw {
+    final ends = (sub['endsAt'] ?? '').toString();
+    if (ends.isNotEmpty) return ends;
+    if (cancelled) {
+      final renews = (sub['renewsAt'] ?? '').toString();
+      return renews.isNotEmpty ? renews : null;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final accessUntil = _accessUntilRaw;
+    final accessUntilLabel =
+        accessUntil != null && accessUntil.isNotEmpty ? _fmtDate(accessUntil) : null;
+
     return Column(
       children: [
         Text(
@@ -422,12 +436,14 @@ class _Header extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           cancelled
-              ? 'Pick a plan below to subscribe again. You keep Pro access until the date shown.'
+              ? (accessUntilLabel != null
+                  ? 'Pick a plan below to subscribe again. You keep Pro access until $accessUntilLabel.'
+                  : 'Pick a plan below to subscribe again. You keep Pro access until the end of your paid period.')
               : isPro
-              ? 'All Pro features are unlocked. Manage your subscription anytime.'
-              : isIndia
-                  ? 'Cancel any time \u2022 30-day money-back guarantee \u2022 Secure checkout via Razorpay'
-                  : 'Cancel any time \u2022 30-day money-back guarantee \u2022 Secure checkout via Lemon Squeezy',
+                  ? 'All Pro features are unlocked. Manage your subscription anytime.'
+                  : isIndia
+                      ? 'Cancel any time \u2022 30-day money-back guarantee \u2022 Secure checkout via Razorpay'
+                      : 'Cancel any time \u2022 30-day money-back guarantee \u2022 Secure checkout via Lemon Squeezy',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                 color: Colors.grey.shade700,
@@ -440,15 +456,18 @@ class _Header extends StatelessWidget {
             spacing: 12,
             runSpacing: 8,
             children: [
-              if ((sub['renewsAt'] ?? '').toString().isNotEmpty)
+              if (accessUntilLabel != null)
+                _Chip(
+                  icon: cancelled ? Icons.event_busy : Icons.event_repeat,
+                  label: cancelled
+                      ? 'Pro access until $accessUntilLabel'
+                      : 'Renews $accessUntilLabel',
+                )
+              else if (!cancelled &&
+                  (sub['renewsAt'] ?? '').toString().isNotEmpty)
                 _Chip(
                   icon: Icons.event_repeat,
                   label: 'Renews ${_fmtDate(sub['renewsAt'])}',
-                ),
-              if ((sub['endsAt'] ?? '').toString().isNotEmpty)
-                _Chip(
-                  icon: Icons.event_busy,
-                  label: 'Access until ${_fmtDate(sub['endsAt'])}',
                 ),
               if ((sub['status'] ?? '').toString().isNotEmpty)
                 _Chip(

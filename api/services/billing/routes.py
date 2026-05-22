@@ -356,12 +356,17 @@ def _public_sub(profile: dict | None) -> dict:
         return {"tier": "free", "status": "none"}
     sub = (profile.get("subscription") or {})
     provider = sub.get("provider") or ("razorpay" if sub.get("rzpPaymentId") else "lemonsqueezy")
+    status = (sub.get("status") or "none").lower()
+    ends_at = sub.get("endsAt")
+    # Cancelled subs often keep renewsAt as the paid-through date; expose it as endsAt.
+    if status in ("cancelled", "expired") and not ends_at:
+        ends_at = sub.get("renewsAt")
     return {
         "tier": (sub.get("tier") or profile.get("tier") or "free").lower(),
         "status": sub.get("status") or "none",
         "interval": sub.get("interval"),
         "renewsAt": sub.get("renewsAt"),
-        "endsAt": sub.get("endsAt"),
+        "endsAt": ends_at,
         "cancelledAt": sub.get("cancelledAt"),
         "priceUsd": sub.get("priceUsd"),
         "priceInr": sub.get("priceInr"),
@@ -937,7 +942,12 @@ def cancel_subscription(req: func.HttpRequest) -> func.HttpResponse:
                 })
             except Exception as ls_err:
                 logger.warning("LS cancel API failed (%s) — marking locally", ls_err)
-                sub.update({"status": "cancelled", "cancelledAt": now})
+                access_until = sub.get("endsAt") or sub.get("renewsAt")
+                sub.update({
+                    "status": "cancelled",
+                    "cancelledAt": now,
+                    "endsAt": access_until,
+                })
 
         elif provider == "razorpay" and payment_type == "recurring":
             rzp_sub_id = sub.get("rzpSubscriptionId")
@@ -952,11 +962,21 @@ def cancel_subscription(req: func.HttpRequest) -> func.HttpResponse:
                     )
                 except Exception as rzp_err:
                     logger.warning("Razorpay cancel API failed (%s) — marking locally", rzp_err)
-            sub.update({"status": "cancelled", "cancelledAt": now})
+            access_until = sub.get("endsAt") or sub.get("renewsAt")
+            sub.update({
+                "status": "cancelled",
+                "cancelledAt": now,
+                "endsAt": access_until,
+            })
 
         else:
             # Razorpay one-time — no recurring charge to stop; just mark as cancelled
-            sub.update({"status": "cancelled", "cancelledAt": now})
+            access_until = sub.get("endsAt") or sub.get("renewsAt")
+            sub.update({
+                "status": "cancelled",
+                "cancelledAt": now,
+                "endsAt": access_until,
+            })
 
         profile["subscription"] = sub
         upsert_item("profiles", profile)
@@ -1461,9 +1481,16 @@ def razorpay_webhook(req: func.HttpRequest) -> func.HttpResponse:
                 now = _now_iso()
                 profile = read_item("profiles", sub_user_id, sub_user_id)
                 if profile and (profile.get("subscription") or {}).get("rzpSubscriptionId") == rzp_sub_id:
-                    profile["subscription"]["status"] = "cancelled"
-                    profile["subscription"]["cancelledAt"] = now
-                    profile["subscription"]["updatedAt"] = now
+                    psub = profile["subscription"]
+                    psub["status"] = "cancelled"
+                    psub["cancelledAt"] = now
+                    psub["updatedAt"] = now
+                    if not psub.get("endsAt"):
+                        psub["endsAt"] = (
+                            psub.get("renewsAt")
+                            or sub_entity.get("current_end")
+                            or sub_entity.get("end_at")
+                        )
                     if event in ("subscription.completed", "subscription.expired"):
                         profile["subscription"]["tier"] = "free"
                         profile["tier"] = "free"
