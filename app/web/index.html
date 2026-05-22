@@ -134,7 +134,9 @@
         amount: opts.amount,
         currency: opts.currency || 'INR',
         name: opts.name || 'HirePanda',
-        description: opts.description || 'HirePanda Pro',
+        description: opts.test_mode
+          ? (opts.description || 'HirePanda Pro') + ' (TEST — do not scan QR)'
+          : (opts.description || 'HirePanda Pro'),
         order_id: opts.order_id,
         prefill: opts.prefill || {},
         theme: opts.theme || { color: '#1E3A8A' },

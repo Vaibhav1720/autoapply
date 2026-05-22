@@ -173,8 +173,38 @@ class _PricingScreenState extends State<PricingScreen> {
         ? data['amount'] as int
         : int.tryParse('${data['amount']}') ?? 0;
     final currency = (data['currency'] ?? 'INR').toString();
+    final testMode = data['testMode'] == true || keyId.startsWith('rzp_test_');
     if (orderId.isEmpty || keyId.isEmpty || amount < 100) {
       throw Exception('Invalid order response from server');
+    }
+
+    if (testMode && mounted) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Test mode payment'),
+          content: const Text(
+            'You are using Razorpay test keys. The UPI QR shown is a dummy — '
+            'scanning it with PhonePe/GPay will not work.\n\n'
+            'To complete a test payment:\n'
+            '• Tap Cards → use test card 5267 3184 3456 8039, any CVV, future expiry, '
+            'then tap Success on the next screen\n'
+            '• Or tap UPI → enter success@razorpay (not the QR)\n\n'
+            'For a real scannable QR, switch to live keys (rzp_live_) in Razorpay Dashboard.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Continue to checkout'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
     }
 
     final pp = context.read<ProfileProvider>();
@@ -193,6 +223,7 @@ class _PricingScreenState extends State<PricingScreen> {
       description: 'HirePanda ${plan['name'] ?? 'Pro'}',
       customerName: displayName,
       customerEmail: email.isNotEmpty ? email : 'user@example.com',
+      testMode: testMode,
     );
 
     if (payment == null) {

@@ -747,12 +747,14 @@ def _razorpay_create_order_impl(req: func.HttpRequest) -> func.HttpResponse:
                 status_code=502,
             )
 
+        key_id = rp.public_key_id()
         return success_response({
             "order_id": order_id,
             "amount": amount_paise,
             "currency": order.get("currency") or "INR",
-            "key_id": rp.public_key_id(),
+            "key_id": key_id,
             "planId": plan_id,
+            "testMode": key_id.startswith("rzp_test_"),
         })
     except AppException as e:
         return error_response(e)

@@ -14,6 +14,7 @@ Future<Map<String, String>?> openRazorpayStandardCheckout({
   required String description,
   required String customerName,
   required String customerEmail,
+  bool testMode = false,
 }) async {
   if (js.context['Razorpay'] == null) {
     throw StateError(
@@ -55,6 +56,7 @@ Future<Map<String, String>?> openRazorpayStandardCheckout({
       'email': customerEmail,
     },
     'theme': {'color': '#1E3A8A'},
+    'test_mode': testMode,
   });
 
   try {
