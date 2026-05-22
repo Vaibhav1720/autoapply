@@ -36,7 +36,7 @@ class _PricingScreenState extends State<PricingScreen> {
   List<Map<String, dynamic>> _plans = const [];
   Map<String, dynamic> _sub = const {};
   bool _isIndia = false;
-  // "one_time" or "recurring"
+  /// India Razorpay: default subscription; user may switch to one-time.
   String _paymentType = 'recurring';
 
   @override
@@ -733,9 +733,9 @@ class _PaymentTypeToggle extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          value == 'one_time'
-              ? 'Pay for one period. Access expires at the end — no further charges.'
-              : 'Billed each period via Razorpay. Cancel anytime from your profile.',
+          value == 'recurring'
+              ? 'Billed each period via Razorpay. Cancel anytime from your profile. (Recommended)'
+              : 'Pay for one period. Access expires at the end — no further charges.',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           textAlign: TextAlign.center,
         ),

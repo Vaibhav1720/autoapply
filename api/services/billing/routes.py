@@ -571,11 +571,11 @@ def razorpay_checkout(req: func.HttpRequest) -> func.HttpResponse:
     Body:
       {
         "planId":      "pro_monthly" | "pro_yearly",
-        "paymentType": "one_time" | "recurring"   (default: "one_time")
+        "paymentType": "one_time" | "recurring"   (default: "recurring")
       }
 
-    paymentType = "one_time"   → Razorpay Payment Link (fixed charge, no auto-renewal)
-    paymentType = "recurring"  → Razorpay Subscription (auto-renews every period)
+    paymentType = "recurring"  → Razorpay Subscription (auto-renews each period)
+    paymentType = "one_time"   → Standard Checkout order (single period, no auto-renewal)
                                   Requires RAZORPAY_PLAN_PRO_MONTHLY / _YEARLY env vars.
 
     Returns: { "url": "...", "paymentProvider": "razorpay", "paymentType": "..." }
@@ -593,7 +593,7 @@ def razorpay_checkout(req: func.HttpRequest) -> func.HttpResponse:
 
         body = req.get_json() if req.get_body() else {}
         plan_id = (body.get("planId") or "").strip()
-        payment_type = (body.get("paymentType") or "one_time").strip().lower()
+        payment_type = (body.get("paymentType") or "recurring").strip().lower()
         if payment_type not in ("one_time", "recurring"):
             raise ValidationError("paymentType must be 'one_time' or 'recurring'")
         if not plan_id:
