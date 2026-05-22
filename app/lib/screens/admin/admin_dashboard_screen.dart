@@ -28,13 +28,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Map<String, dynamic>? _costs;
   Map<String, dynamic>? _runs;
   Map<String, dynamic>? _feedback;
+  Map<String, dynamic>? _billing;
   bool _loading = true;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 8, vsync: this);
+    _tabs = TabController(length: 9, vsync: this);
     _load();
   }
 
@@ -60,6 +61,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         api.get('/api/v1/admin/dashboard/costs', queryParameters: {'days': _days}),
         api.get('/api/v1/admin/dashboard/runs', queryParameters: {'days': _days}),
         api.get('/api/v1/admin/dashboard/feedback', queryParameters: {'days': _days}),
+        api.get('/api/v1/admin/dashboard/subscriptions', queryParameters: {'days': _days < 90 ? 90 : _days}),
       ]);
       if (!mounted) return;
       setState(() {
@@ -71,6 +73,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         _costs = futures[5].data as Map<String, dynamic>;
         _runs = futures[6].data as Map<String, dynamic>;
         _feedback = futures[7].data as Map<String, dynamic>;
+        _billing = futures[8].data as Map<String, dynamic>;
         _loading = false;
       });
     } catch (e) {
@@ -142,6 +145,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           tabs: const [
             Tab(text: 'Overview'),
             Tab(text: 'Users'),
+            Tab(text: 'Billing'),
             Tab(text: 'Usage'),
             Tab(text: 'Costs'),
             Tab(text: 'Funnel'),
@@ -159,7 +163,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   controller: _tabs,
                   children: [
                     _OverviewTab(summary: _summary, usage: _usage),
-                    _UsersTab(users: _users),
+                    _UsersTab(users: _users, days: _days),
+                    _BillingTab(billing: _billing),
                     _UsageTab(usage: _usage),
                     _CostsTab(costs: _costs),
                     _FunnelTab(funnel: _funnel),
@@ -182,6 +187,7 @@ class _OverviewTab extends StatelessWidget {
   Widget build(BuildContext context) {
     if (summary == null) return const Center(child: Text('No data'));
     final users = summary!['users'] as Map<String, dynamic>? ?? {};
+    final billing = summary!['billing'] as Map<String, dynamic>? ?? {};
     final funnel = summary!['discoveryFunnel'] as Map<String, dynamic>? ?? {};
     final series = (usage?['series'] as List?) ?? [];
     return SingleChildScrollView(
@@ -199,6 +205,16 @@ class _OverviewTab extends StatelessWidget {
                   icon: Icons.person_add, color: Colors.green),
               _StatCard(label: 'Active users', value: '${users['active'] ?? 0}',
                   icon: Icons.bolt, color: Colors.orange),
+              _StatCard(label: 'Pro users', value: '${billing['proUsers'] ?? 0}',
+                  icon: Icons.workspace_premium, color: Colors.deepPurple),
+              _StatCard(label: 'Active subs', value: '${billing['activeSubscriptions'] ?? 0}',
+                  icon: Icons.autorenew, color: Colors.green.shade700),
+              _StatCard(label: 'Cancelled subs', value: '${billing['cancelledSubscriptions'] ?? 0}',
+                  icon: Icons.cancel_schedule_send, color: Colors.orange.shade800),
+              _StatCard(label: 'Razorpay', value: '${billing['razorpayCustomers'] ?? 0}',
+                  icon: Icons.currency_rupee, color: Colors.indigo),
+              _StatCard(label: 'Lemon Squeezy', value: '${billing['lemonsqueezyCustomers'] ?? 0}',
+                  icon: Icons.attach_money, color: Colors.teal.shade700),
               _StatCard(label: 'Discover calls', value: '${funnel['discoverCalls'] ?? 0}',
                   icon: Icons.search, color: Colors.purple),
               _StatCard(label: 'Jobs scraped', value: '${funnel['totalScraped'] ?? 0}',
@@ -231,58 +247,378 @@ class _OverviewTab extends StatelessWidget {
 }
 
 // ── Users Tab ─────────────────────────────────────────────────────────────
-class _UsersTab extends StatelessWidget {
+class _UsersTab extends StatefulWidget {
   final Map<String, dynamic>? users;
-  const _UsersTab({required this.users});
+  final int days;
+  const _UsersTab({required this.users, required this.days});
+
+  @override
+  State<_UsersTab> createState() => _UsersTabState();
+}
+
+class _UsersTabState extends State<_UsersTab> {
+  String _filter = '';
 
   @override
   Widget build(BuildContext context) {
-    final list = (users?['users'] as List?) ?? [];
-    if (list.isEmpty) return const Center(child: Text('No users'));
+    final all = (widget.users?['users'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final q = _filter.trim().toLowerCase();
+    final list = q.isEmpty
+        ? all
+        : all.where((u) {
+            final blob = [
+              u['email'],
+              u['name'],
+              u['userId'],
+              u['country'],
+              u['tier'],
+              u['subscriptionStatus'],
+              u['paymentProvider'],
+              (u['recentQueries'] as List?)?.join(' '),
+              (u['locations'] as List?)?.join(' '),
+            ].join(' ').toLowerCase();
+            return blob.contains(q);
+          }).toList();
+
+    if (all.isEmpty) return const Center(child: Text('No users'));
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
-      scrollDirection: Axis.vertical,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            decoration: InputDecoration(
+              hintText: 'Filter by email, name, country, tier, queries…',
+              prefixIcon: const Icon(Icons.search),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              isDense: true,
+            ),
+            onChanged: (v) => setState(() => _filter = v),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Tap a row for full profile, payments, and discover runs. '
+            'Window: ${widget.days} days.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+          ),
+          const SizedBox(height: 12),
+          _ChartCard(
+            title: 'Users (${list.length} of ${all.length})',
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columnSpacing: 14,
+                showCheckboxColumn: false,
+                columns: const [
+                  DataColumn(label: Text('Email')),
+                  DataColumn(label: Text('Tier')),
+                  DataColumn(label: Text('Sub status')),
+                  DataColumn(label: Text('Provider')),
+                  DataColumn(label: Text('Type')),
+                  DataColumn(label: Text('Paid')),
+                  DataColumn(label: Text('Start')),
+                  DataColumn(label: Text('Access end')),
+                  DataColumn(label: Text('Country')),
+                  DataColumn(label: Text('Locations')),
+                  DataColumn(label: Text('Queries')),
+                  DataColumn(label: Text('Last seen')),
+                  DataColumn(label: Text('Calls'), numeric: true),
+                  DataColumn(label: Text('Disc 24h'), numeric: true),
+                ],
+                rows: [
+                  for (final u in list)
+                    DataRow(
+                      onSelectChanged: (_) => _openUserDetail(context, u),
+                      cells: [
+                        DataCell(Text(u['email']?.toString() ?? '—',
+                            overflow: TextOverflow.ellipsis)),
+                        DataCell(_tierChip(u['tier']?.toString() ?? 'free')),
+                        DataCell(Text(u['subscriptionStatus']?.toString() ?? '—')),
+                        DataCell(Text(u['paymentProvider']?.toString() ?? '—')),
+                        DataCell(Text(u['paymentType']?.toString() ?? '—')),
+                        DataCell(Text(
+                            u['lifetimePaidDisplay']?.toString() ??
+                                u['amountPaidDisplay']?.toString() ??
+                                '—')),
+                        DataCell(Text(_shortDate(
+                            u['subscriptionStart'] ?? u['firstPaymentAt']))),
+                        DataCell(Text(_shortDate(
+                            u['accessEnd'] ?? u['endsAt'] ?? u['renewsAt']))),
+                        DataCell(Text(u['country']?.toString() ?? '—')),
+                        DataCell(Text(
+                          ((u['locations'] as List?) ?? [])
+                              .take(2)
+                              .join(', '),
+                          overflow: TextOverflow.ellipsis,
+                        )),
+                        DataCell(Text(
+                          ((u['recentQueries'] as List?) ?? [])
+                              .take(2)
+                              .join(' · '),
+                          overflow: TextOverflow.ellipsis,
+                        )),
+                        DataCell(Text(_shortDate(u['lastSeen']))),
+                        DataCell(Text('${u['apiCalls'] ?? 0}')),
+                        DataCell(Text('${u['discoverUsage24h'] ?? 0}')),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openUserDetail(BuildContext context, Map<String, dynamic> u) {
+    final uid = u['userId']?.toString();
+    if (uid == null || uid.isEmpty) return;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => _UserDetailDialog(userId: uid, days: widget.days),
+    );
+  }
+}
+
+// ── Billing Tab ─────────────────────────────────────────────────────────────
+class _BillingTab extends StatelessWidget {
+  final Map<String, dynamic>? billing;
+  const _BillingTab({required this.billing});
+
+  @override
+  Widget build(BuildContext context) {
+    final list =
+        (billing?['subscriptions'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    if (list.isEmpty) {
+      return const Center(
+        child: Text('No payment records in this window.\n'
+            'Payments appear after Razorpay or Lemon Squeezy checkout.'),
+      );
+    }
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
       child: _ChartCard(
-        title: 'Users (${list.length})',
+        title: 'Payments (${list.length})',
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: DataTable(
-            columnSpacing: 20,
+            columnSpacing: 14,
             columns: const [
+              DataColumn(label: Text('Date')),
               DataColumn(label: Text('Email')),
-              DataColumn(label: Text('Name')),
-              DataColumn(label: Text('Tier')),
-              DataColumn(label: Text('Created')),
-              DataColumn(label: Text('Last seen')),
-              DataColumn(label: Text('API calls'), numeric: true),
-              DataColumn(label: Text('Scraped'), numeric: true),
-              DataColumn(label: Text('Matched'), numeric: true),
-              DataColumn(label: Text('Errors'), numeric: true),
-              DataColumn(label: Text('Time spent'), numeric: true),
-              DataColumn(label: Text('Unique cos'), numeric: true),
-              DataColumn(label: Text('Today'), numeric: true),
+              DataColumn(label: Text('Amount')),
+              DataColumn(label: Text('Provider')),
+              DataColumn(label: Text('Plan')),
+              DataColumn(label: Text('Interval')),
+              DataColumn(label: Text('Type')),
+              DataColumn(label: Text('Status')),
+              DataColumn(label: Text('Access until')),
+              DataColumn(label: Text('Payment ID')),
             ],
             rows: [
-              for (final u in list.cast<Map<String, dynamic>>())
+              for (final r in list)
                 DataRow(cells: [
-                  DataCell(Text(u['email'] ?? '—', overflow: TextOverflow.ellipsis)),
-                  DataCell(Text(u['name'] ?? '—', overflow: TextOverflow.ellipsis)),
-                  DataCell(_tierChip(u['tier'] ?? 'free')),
-                  DataCell(Text(_shortDate(u['createdAt']))),
-                  DataCell(Text(_shortDate(u['lastSeen']))),
-                  DataCell(Text('${u['apiCalls'] ?? 0}')),
-                  DataCell(Text('${u['totalScraped'] ?? 0}')),
-                  DataCell(Text('${u['totalMatched'] ?? 0}')),
-                  DataCell(_errorCell(u['errorCount'] ?? 0)),
-                  DataCell(Text('${((u['totalDurationMs'] ?? 0) as int) ~/ 1000}s')),
-                  DataCell(Text('${u['uniqueCompanies'] ?? 0}')),
-                  DataCell(Text('${u['todayDiscoverCount'] ?? 0}')),
+                  DataCell(Text(_shortDate(r['createdAt']))),
+                  DataCell(Text(r['email']?.toString() ?? '—',
+                      overflow: TextOverflow.ellipsis)),
+                  DataCell(Text(r['amountDisplay']?.toString() ?? '—')),
+                  DataCell(Text(r['provider']?.toString() ?? '—')),
+                  DataCell(Text(r['planId']?.toString() ?? '—')),
+                  DataCell(Text(r['interval']?.toString() ?? '—')),
+                  DataCell(Text(r['paymentType']?.toString() ?? '—')),
+                  DataCell(Text(r['status']?.toString() ?? '—')),
+                  DataCell(Text(_shortDate(r['renewsAt']))),
+                  DataCell(Text(r['paymentId']?.toString() ?? '—',
+                      overflow: TextOverflow.ellipsis)),
                 ]),
             ],
           ),
         ),
       ),
     );
+  }
+}
+
+// ── User detail dialog ──────────────────────────────────────────────────────
+class _UserDetailDialog extends StatefulWidget {
+  final String userId;
+  final int days;
+  const _UserDetailDialog({required this.userId, required this.days});
+
+  @override
+  State<_UserDetailDialog> createState() => _UserDetailDialogState();
+}
+
+class _UserDetailDialogState extends State<_UserDetailDialog> {
+  bool _loading = true;
+  String? _error;
+  Map<String, dynamic>? _data;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final api = context.read<ApiService>();
+      final resp = await api.get(
+        '/api/v1/admin/dashboard/user/${widget.userId}',
+        queryParameters: {'days': widget.days},
+      );
+      if (!mounted) return;
+      setState(() {
+        _data = resp.data is Map ? Map<String, dynamic>.from(resp.data as Map) : null;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('User — ${widget.userId}'),
+      content: SizedBox(
+        width: 560,
+        child: _loading
+            ? const SizedBox(
+                height: 120, child: Center(child: CircularProgressIndicator()))
+            : _error != null
+                ? Text(_error!, style: const TextStyle(color: Colors.red))
+                : _buildBody(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBody() {
+    final d = _data!;
+    final billing = (d['billing'] as Map?)?.cast<String, dynamic>() ?? {};
+    final profile = (d['profile'] as Map?)?.cast<String, dynamic>() ?? {};
+    final payments = (d['payments'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final runs = (d['discoverRuns'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final totals = (d['totals'] as Map?)?.cast<String, dynamic>() ?? {};
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _detailSection('Account', [
+            _kv('Email', profile['email']),
+            _kv('Name', profile['name']),
+            _kv('Tier', billing['tier'] ?? profile['tier']),
+            _kv('Country', (profile['applicationDetails'] as Map?)?['country']),
+            _kv('Signed up', _shortDate(profile['createdAt'])),
+          ]),
+          _detailSection('Subscription & payments', [
+            _kv('Status', billing['subscriptionStatus']),
+            _kv('Provider', billing['paymentProvider']),
+            _kv('Payment type', billing['paymentType']),
+            _kv('Plan', billing['planId']),
+            _kv('Interval', billing['interval']),
+            _kv('Last period amount', billing['amountPaidDisplay']),
+            _kv('Lifetime paid', billing['amountPaidDisplay'] ?? billing['lifetimePaidDisplay']),
+            _kv('Payments count', '${billing['paymentCount'] ?? payments.length}'),
+            _kv('Started', _shortDate(billing['subscriptionStart'] ?? billing['firstPaymentAt'])),
+            _kv('Access ends', _shortDate(billing['accessEnd'] ?? billing['endsAt'] ?? billing['renewsAt'])),
+            _kv('Cancelled', _shortDate(billing['cancelledAt'])),
+            _kv('Razorpay payment', billing['rzpPaymentId']),
+            _kv('Razorpay sub', billing['rzpSubscriptionId']),
+            _kv('LS sub', billing['lsSubscriptionId']),
+          ]),
+          if (payments.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Text('Payment history',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            for (final p in payments.reversed.take(8))
+              Text(
+                '${_shortDate(p['createdAt'])} · ${p['provider']} · '
+                '${_fmtPayAmount(p)} · ${p['planId']} · ${p['status']}',
+                style: const TextStyle(fontSize: 11),
+              ),
+          ],
+          _detailSection('Search activity (${widget.days}d)', [
+            _kv('Discover calls', '${totals['calls'] ?? 0}'),
+            _kv('Jobs scraped', '${totals['scraped'] ?? 0}'),
+            _kv('Jobs matched', '${totals['matched'] ?? 0}'),
+            _kv('Errors', '${totals['errors'] ?? 0}'),
+          ]),
+          if (runs.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Text('Recent discover runs',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            for (final r in runs.take(5))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  '${_shortDate(r['timestamp'])} · ${r['runType']} · '
+                  'queries: ${((r['queries'] as List?) ?? []).join(", ")} · '
+                  'locs: ${((r['locations'] as List?) ?? []).join(", ")}',
+                  style: const TextStyle(fontSize: 11),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _detailSection(String title, List<Widget> rows) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const SizedBox(height: 6),
+          ...rows,
+        ],
+      ),
+    );
+  }
+
+  Widget _kv(String k, dynamic v) {
+    final s = v?.toString().trim() ?? '';
+    if (s.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(k, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+          ),
+          Expanded(
+            child: Text(s, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _fmtPayAmount(Map<String, dynamic> p) {
+    final inr = p['priceInr'];
+    final usd = p['priceUsd'];
+    if (inr != null && (inr as num) > 0) return '₹$inr';
+    if (usd != null && (usd as num) > 0) return '\$$usd';
+    return '—';
   }
 }
 

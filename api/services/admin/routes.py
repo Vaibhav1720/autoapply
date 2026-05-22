@@ -63,6 +63,117 @@ def _since(days: int) -> datetime:
     return datetime.now(timezone.utc) - timedelta(days=days)
 
 
+def _fmt_amount_inr_usd(price_inr, price_usd, currency: str = "") -> str:
+    inr = int(price_inr) if price_inr is not None else 0
+    usd = float(price_usd) if price_usd is not None else 0
+    cur = (currency or "").upper()
+    if inr > 0:
+        return f"₹{inr:,}"
+    if usd > 0:
+        return f"${usd:,.2f}"
+    if cur == "INR":
+        return "₹—"
+    if cur == "USD":
+        return "$—"
+    return "—"
+
+
+def _profile_country(profile: dict) -> str:
+    app = profile.get("applicationDetails") or {}
+    personal = profile.get("personal") or {}
+    prefs = profile.get("preferences") or {}
+    for raw in (
+        app.get("country"),
+        personal.get("country"),
+        prefs.get("country"),
+    ):
+        if raw:
+            return str(raw).strip()
+    return ""
+
+
+def _profile_locations(profile: dict) -> list:
+    prefs = profile.get("preferences") or {}
+    locs = prefs.get("locations") or profile.get("locations") or []
+    if isinstance(locs, list):
+        return [str(x).strip() for x in locs if x][:20]
+    return []
+
+
+def _subscription_fields(profile: dict) -> dict:
+    """Normalize billing fields from profile.subscription + tier."""
+    sub = profile.get("subscription") or {}
+    tier = (sub.get("tier") or profile.get("tier") or "free").lower()
+    status = (sub.get("status") or "").strip().lower()
+    if not status:
+        status = "active" if tier in ("pro", "lifetime", "admin") else "none"
+    ends_at = sub.get("endsAt")
+    if status in ("cancelled", "expired") and not ends_at:
+        ends_at = sub.get("renewsAt")
+    price_inr = sub.get("priceInr")
+    price_usd = sub.get("priceUsd")
+    provider = sub.get("provider") or (
+        "razorpay" if sub.get("rzpPaymentId") or sub.get("rzpSubscriptionId") else
+        ("lemonsqueezy" if sub.get("lsSubscriptionId") else "")
+    )
+    return {
+        "tier": tier,
+        "subscriptionStatus": status,
+        "paymentProvider": provider or None,
+        "paymentType": sub.get("paymentType") or "recurring",
+        "planId": sub.get("planId"),
+        "interval": sub.get("interval"),
+        "amountPaidDisplay": _fmt_amount_inr_usd(
+            price_inr, price_usd, sub.get("currency") or ("INR" if price_inr else "USD")
+        ),
+        "priceInr": price_inr,
+        "priceUsd": price_usd,
+        "currency": sub.get("currency") or ("INR" if price_inr else ("USD" if price_usd else "")),
+        "subscriptionStart": sub.get("createdAt") or sub.get("updatedAt"),
+        "accessEnd": ends_at,
+        "renewsAt": sub.get("renewsAt"),
+        "endsAt": ends_at,
+        "cancelledAt": sub.get("cancelledAt"),
+        "rzpPaymentId": sub.get("rzpPaymentId"),
+        "rzpSubscriptionId": sub.get("rzpSubscriptionId"),
+        "lsSubscriptionId": sub.get("lsSubscriptionId"),
+    }
+
+
+def _payments_summary(payments: list[dict]) -> dict:
+    if not payments:
+        return {
+            "paymentCount": 0,
+            "totalPaidInr": 0,
+            "totalPaidUsd": 0.0,
+            "amountPaidDisplay": "—",
+            "lastPaymentAt": None,
+            "lastPaymentId": None,
+            "firstPaymentAt": None,
+        }
+    sorted_p = sorted(payments, key=lambda x: x.get("createdAt") or "")
+    total_inr = sum(int(p.get("priceInr") or 0) for p in payments)
+    total_usd = sum(float(p.get("priceUsd") or 0) for p in payments)
+    latest = sorted_p[-1]
+    return {
+        "paymentCount": len(payments),
+        "totalPaidInr": total_inr,
+        "totalPaidUsd": round(total_usd, 2),
+        "amountPaidDisplay": _fmt_amount_inr_usd(
+            total_inr if total_inr else None,
+            total_usd if total_usd else None,
+        ),
+        "lastPaymentAt": latest.get("createdAt"),
+        "lastPaymentId": (
+            latest.get("rzpPaymentId")
+            or latest.get("rzpOrderId")
+            or latest.get("lsSubscriptionId")
+            or latest.get("id")
+        ),
+        "firstPaymentAt": sorted_p[0].get("createdAt"),
+    }
+
+
 # ── /admin/dashboard/summary ─────────────────────────────────────────────────
 @bp.route(route="api/v1/admin/dashboard/summary", methods=["GET"])
 def admin_dashboard_summary(req: func.HttpRequest) -> func.HttpResponse:
@@ -79,7 +190,7 @@ def admin_dashboard_summary(req: func.HttpRequest) -> func.HttpResponse:
         # Total users
         users = query_items(
             "profiles",
-            "SELECT c.id, c.email, c.tier, c.createdAt, c.updatedAt, c.usageCounters FROM c",
+            "SELECT c.id, c.email, c.tier, c.createdAt, c.updatedAt, c.usageCounters, c.subscription FROM c",
         )
         total_users = len(users)
         new_users = sum(1 for u in users if (_parse_iso(u.get("createdAt")) or since) >= since)
@@ -110,12 +221,40 @@ def admin_dashboard_summary(req: func.HttpRequest) -> func.HttpResponse:
             if mv.startswith("err:") or mv.startswith("unhandled:"):
                 errors += 1
 
+        pro_users = 0
+        active_paid = 0
+        cancelled_paid = 0
+        razorpay_users = 0
+        ls_users = 0
+        for u in users:
+            tier = (u.get("tier") or "free").lower()
+            sub = u.get("subscription") or {}
+            st = (sub.get("status") or "").lower()
+            if tier in ("pro", "lifetime", "admin"):
+                pro_users += 1
+            if st == "active" and tier in ("pro", "lifetime"):
+                active_paid += 1
+            if st == "cancelled":
+                cancelled_paid += 1
+            prov = sub.get("provider") or ""
+            if prov == "razorpay" or sub.get("rzpPaymentId"):
+                razorpay_users += 1
+            if prov == "lemonsqueezy" or sub.get("lsSubscriptionId"):
+                ls_users += 1
+
         return success_response({
             "windowDays": days,
             "users": {
                 "total": total_users,
                 "new": new_users,
                 "active": len(active_user_set),
+            },
+            "billing": {
+                "proUsers": pro_users,
+                "activeSubscriptions": active_paid,
+                "cancelledSubscriptions": cancelled_paid,
+                "razorpayCustomers": razorpay_users,
+                "lemonsqueezyCustomers": ls_users,
             },
             "discoveryFunnel": {
                 "discoverCalls": api_calls,
@@ -146,8 +285,65 @@ def admin_dashboard_users(req: func.HttpRequest) -> func.HttpResponse:
 
         users = query_items(
             "profiles",
-            "SELECT c.id, c.email, c.name, c.tier, c.createdAt, c.updatedAt, c.usageCounters, c.preferences.locations AS locations FROM c",
+            "SELECT c.id, c.email, c.name, c.tier, c.createdAt, c.updatedAt, "
+            "c.usageCounters, c.preferences, c.subscription, c.applicationDetails, "
+            "c.personal FROM c",
         )
+
+        # Payment audit trail (subscriptions container)
+        pay_by_user: dict[str, list] = defaultdict(list)
+        try:
+            pay_docs = query_items(
+                "subscriptions",
+                "SELECT c.id, c.userId, c.provider, c.status, c.planId, c.interval, "
+                "c.priceInr, c.priceUsd, c.currency, c.paymentType, c.createdAt, c.renewsAt, "
+                "c.rzpPaymentId, c.rzpOrderId, c.rzpSubscriptionId, c.lsSubscriptionId FROM c",
+            )
+            for p in pay_docs:
+                uid = p.get("userId")
+                if uid:
+                    pay_by_user[uid].append(p)
+        except Exception as pay_err:
+            logger.warning("admin users: subscriptions query failed: %s", pay_err)
+
+        # Quota usage (24h rolling window in usage_events)
+        usage_by_user: dict[str, dict] = defaultdict(lambda: {
+            "discover": 0, "linkedin": 0, "autofill": 0,
+        })
+        try:
+            usage_evts = query_items(
+                "usage_events",
+                "SELECT c.userId, c.type FROM c WHERE c.ts >= @since",
+                [{"name": "@since", "value": since_iso}],
+            )
+            for ue in usage_evts:
+                uid = ue.get("userId")
+                t = (ue.get("type") or "").lower()
+                if uid and t in ("discover", "linkedin", "autofill"):
+                    usage_by_user[uid][t] += 1
+        except Exception as ue_err:
+            logger.warning("admin users: usage_events query failed: %s", ue_err)
+
+        # Latest discover run per user (queries + locations)
+        run_by_user: dict[str, dict] = {}
+        try:
+            runs = query_items(
+                "match_events",
+                "SELECT c.userId, c.timestamp, c.queries, c.locations, c.runType, "
+                "c.totalScraped, c.totalMatched FROM c WHERE c.kind = 'discover_run' "
+                "AND c.timestamp >= @since",
+                [{"name": "@since", "value": since_iso}],
+            )
+            for r in runs:
+                uid = r.get("userId")
+                if not uid:
+                    continue
+                ts = r.get("timestamp") or ""
+                prev = run_by_user.get(uid)
+                if not prev or ts > (prev.get("timestamp") or ""):
+                    run_by_user[uid] = r
+        except Exception as run_err:
+            logger.warning("admin users: discover_run query failed: %s", run_err)
 
         evts = query_items(
             "match_events",
@@ -187,14 +383,41 @@ def admin_dashboard_users(req: func.HttpRequest) -> func.HttpResponse:
                 "calls": 0, "scraped": 0, "matched": 0, "errors": 0,
                 "durationMs": 0, "lastSeen": None, "companies": set(),
             })
+            billing = _subscription_fields(u)
+            pay_sum = _payments_summary(pay_by_user.get(uid, []))
+            if pay_sum.get("firstPaymentAt") and not billing.get("subscriptionStart"):
+                billing["subscriptionStart"] = pay_sum["firstPaymentAt"]
+            if pay_sum.get("amountPaidDisplay") != "—":
+                billing["lifetimePaidDisplay"] = pay_sum["amountPaidDisplay"]
+            else:
+                billing["lifetimePaidDisplay"] = billing.get("amountPaidDisplay") or "—"
+
+            run = run_by_user.get(uid) or {}
+            queries = run.get("queries") or []
+            if isinstance(queries, list):
+                queries = [str(q).strip() for q in queries if q][:8]
+            else:
+                queries = []
+            run_locs = run.get("locations") or []
+            if not isinstance(run_locs, list):
+                run_locs = []
+            locs = _profile_locations(u) or [str(x) for x in run_locs if x][:10]
+
+            u_usage = usage_by_user.get(uid, {})
             rows.append({
                 "userId": uid,
-                "email": u.get("email"),
-                "name": u.get("name"),
-                "tier": u.get("tier") or "free",
+                "email": u.get("email") or (u.get("personal") or {}).get("email"),
+                "name": u.get("name") or (
+                    f"{(u.get('personal') or {}).get('firstName', '')} "
+                    f"{(u.get('personal') or {}).get('lastName', '')}"
+                ).strip(),
+                "country": _profile_country(u),
+                "locations": locs,
+                "recentQueries": queries,
+                "lastRunType": run.get("runType"),
+                "lastRunAt": run.get("timestamp"),
                 "createdAt": u.get("createdAt"),
                 "updatedAt": u.get("updatedAt"),
-                "locations": u.get("locations") or [],
                 "windowDays": days,
                 "apiCalls": stats["calls"],
                 "totalScraped": stats["scraped"],
@@ -203,7 +426,12 @@ def admin_dashboard_users(req: func.HttpRequest) -> func.HttpResponse:
                 "totalDurationMs": stats["durationMs"],
                 "uniqueCompanies": len(stats["companies"]),
                 "lastSeen": stats["lastSeen"],
+                "discoverUsage24h": u_usage.get("discover", 0),
+                "linkedinUsage24h": u_usage.get("linkedin", 0),
+                "autofillUsage24h": u_usage.get("autofill", 0),
                 "todayDiscoverCount": (u.get("usageCounters") or {}).get("dailyDiscover", 0),
+                **billing,
+                **pay_sum,
             })
 
         rows.sort(key=lambda r: r.get("lastSeen") or "", reverse=True)
@@ -609,9 +837,37 @@ def admin_dashboard_user_detail(req: func.HttpRequest) -> func.HttpResponse:
             [{"name": "@uid", "value": uid}, {"name": "@since", "value": since_iso}],
         )
 
+        payments = []
+        try:
+            payments = query_items(
+                "subscriptions",
+                "SELECT c.id, c.provider, c.status, c.planId, c.interval, c.priceInr, c.priceUsd, "
+                "c.currency, c.paymentType, c.createdAt, c.renewsAt, c.rzpPaymentId, c.rzpOrderId, "
+                "c.rzpSubscriptionId, c.lsSubscriptionId FROM c WHERE c.userId = @uid",
+                [{"name": "@uid", "value": uid}],
+            )
+            payments.sort(key=lambda p: p.get("createdAt") or "")
+        except Exception:
+            pass
+
+        runs = query_items(
+            "match_events",
+            "SELECT TOP 20 c.timestamp, c.runType, c.queries, c.locations, c.totalScraped, "
+            "c.totalMatched, c.totalDisplayed, c.durationMs FROM c WHERE c.userId = @uid "
+            "AND c.kind = 'discover_run' AND c.timestamp >= @since",
+            [{"name": "@uid", "value": uid}, {"name": "@since", "value": since_iso}],
+        )
+        runs.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
+
+        billing = _subscription_fields(profile)
+        billing.update(_payments_summary(payments))
+
         return success_response({
             "userId": uid,
             "profile": profile,
+            "billing": billing,
+            "payments": payments,
+            "discoverRuns": runs,
             "windowDays": days,
             "events": evts,
             "totals": {
@@ -629,6 +885,75 @@ def admin_dashboard_user_detail(req: func.HttpRequest) -> func.HttpResponse:
         return error_response(e)
     except Exception as e:
         logger.exception("admin user detail failed: %s", e)
+        return internal_error_response(str(e))
+
+
+# ── /admin/dashboard/subscriptions ───────────────────────────────────────────
+@bp.route(route="api/v1/admin/dashboard/subscriptions", methods=["GET"])
+def admin_dashboard_subscriptions(req: func.HttpRequest) -> func.HttpResponse:
+    """All payment/subscription audit records (newest first)."""
+    try:
+        _require_super_admin(req)
+        days = _days_param(req, 90)
+        since_iso = _since(days).isoformat()
+
+        rows = []
+        try:
+            rows = query_items(
+                "subscriptions",
+                "SELECT c.id, c.userId, c.provider, c.status, c.planId, c.interval, "
+                "c.priceInr, c.priceUsd, c.currency, c.paymentType, c.createdAt, c.renewsAt, "
+                "c.rzpPaymentId, c.rzpOrderId, c.rzpSubscriptionId, c.lsSubscriptionId FROM c "
+                "WHERE c.createdAt >= @since",
+                [{"name": "@since", "value": since_iso}],
+            )
+        except Exception as sub_err:
+            logger.warning("admin subscriptions query failed: %s", sub_err)
+
+        # Enrich with profile email
+        emails: dict[str, str] = {}
+        profiles = query_items("profiles", "SELECT c.id, c.email FROM c")
+        for p in profiles:
+            emails[p.get("id")] = p.get("email") or ""
+
+        out = []
+        for r in rows:
+            uid = r.get("userId") or ""
+            out.append({
+                "id": r.get("id"),
+                "userId": uid,
+                "email": emails.get(uid, ""),
+                "provider": r.get("provider"),
+                "status": r.get("status"),
+                "planId": r.get("planId"),
+                "interval": r.get("interval"),
+                "paymentType": r.get("paymentType"),
+                "amountDisplay": _fmt_amount_inr_usd(
+                    r.get("priceInr"), r.get("priceUsd"), r.get("currency") or ""
+                ),
+                "priceInr": r.get("priceInr"),
+                "priceUsd": r.get("priceUsd"),
+                "currency": r.get("currency"),
+                "createdAt": r.get("createdAt"),
+                "renewsAt": r.get("renewsAt"),
+                "paymentId": (
+                    r.get("rzpPaymentId")
+                    or r.get("rzpOrderId")
+                    or r.get("lsSubscriptionId")
+                    or r.get("id")
+                ),
+            })
+
+        out.sort(key=lambda x: x.get("createdAt") or "", reverse=True)
+        return success_response({
+            "windowDays": days,
+            "total": len(out),
+            "subscriptions": out[:500],
+        })
+    except AppException as e:
+        return error_response(e)
+    except Exception as e:
+        logger.exception("admin subscriptions failed: %s", e)
         return internal_error_response(str(e))
 
 
