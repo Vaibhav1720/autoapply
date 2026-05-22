@@ -13,6 +13,7 @@ Exposes:
   - GET  /api/v1/billing/portal
   - POST /api/v1/webhooks/lemonsqueezy      (no auth — HMAC verified)
   - POST /api/v1/webhooks/razorpay          (no auth — HMAC verified)
+  - POST /api/v1/billing/razorpay/webhook   (alias → webhooks/razorpay)
 
 Country routing:
   country == "IN"  →  Razorpay (INR, ₹199/mo, ₹1799/yr)
@@ -1476,3 +1477,9 @@ def razorpay_webhook(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as e:
         logger.exception("[RZP] webhook handling failed: %s", e)
         return func.HttpResponse("ok", status_code=200)
+
+
+@bp.route(route="api/v1/billing/razorpay/webhook", methods=["POST"])
+def razorpay_webhook_billing_alias(req: func.HttpRequest) -> func.HttpResponse:
+    """Alias for dashboard URLs under /billing/razorpay/webhook."""
+    return razorpay_webhook(req)
