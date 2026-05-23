@@ -69,6 +69,8 @@ _FREE_PLAN: dict = {
         "2 Discover searches / day",
         "2 LinkedIn searches / day",
         "5 AI autofill suggestions / day",
+        "1 resume tailor / day",
+        "2 AI resume uploads / day",
         "5 companies tracked",
         "Basic resume tailoring",
     ],

@@ -14,7 +14,7 @@ from shared.response_helpers import (
     internal_error_response,
     success_response,
 )
-from services._runtime import logger
+from services._runtime import _check_company_selection_limit, logger
 
 bp = func.Blueprint()
 
@@ -55,6 +55,8 @@ def select_companies(req: func.HttpRequest) -> func.HttpResponse:
         profile = read_item("profiles", user_id, user_id)
         if not profile:
             raise NotFoundError("Profile not found")
+
+        _check_company_selection_limit(profile, company_ids)
 
         profile["selectedCompanies"] = company_ids
         profile["updatedAt"] = datetime.now(timezone.utc).isoformat()

@@ -39,13 +39,21 @@ from shared.embeddings import (
     job_to_text,
     profile_to_text,
 )
-from shared.exceptions import AppException, NotFoundError, ValidationError
+from shared.exceptions import AppException, NotFoundError, RateLimitError, ValidationError
 from shared.response_helpers import (
     error_response,
     internal_error_response,
     success_response,
 )
-from services._runtime import AI_PARSE_MODEL, AI_REVIEW_MODEL, _is_modern_model, logger
+from services._runtime import (
+    AI_PARSE_MODEL,
+    AI_REVIEW_MODEL,
+    _check_daily_tailor_quota,
+    _is_modern_model,
+    get_country_for_billing,
+    get_upgrade_message,
+    logger,
+)
 
 # Resume tailoring — use a fast model for acceptable latency.
 # Falls back to the cheaper review model if not configured.
@@ -678,6 +686,14 @@ def suggest_resume_improvements(req: func.HttpRequest) -> func.HttpResponse:
         profile = read_item("profiles", user_id, user_id)
         if not profile:
             raise NotFoundError("Profile not found")
+
+        allowed, _remaining = _check_daily_tailor_quota(profile)
+        if not allowed:
+            country = get_country_for_billing(req, profile)
+            raise RateLimitError(
+                get_upgrade_message(country)
+                + " Resume tailoring is limited to 1 run per day on the free plan."
+            )
 
         # Persist any new industry choice BEFORE we read prefs below, so the
         # rest of this request (and the next Discover call) sees it.

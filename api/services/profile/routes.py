@@ -27,14 +27,19 @@ from shared.response_helpers import (
 )
 from services._runtime import (
     AI_REVIEW_MODEL,
-    _is_modern_model,
     _COMMON_QUESTIONS,
     _OPTIONAL_QUESTION_KEYS,
+    _check_daily_resume_upload_quota,
     _extract_multipart_file,
     _extract_skills_from_resume,
+    _is_modern_model,
+    _require_pro_or_paid_resume_review,
+    get_country_for_billing,
     get_usage_summary,
+    get_upgrade_message,
     logger,
 )
+from shared.exceptions import RateLimitError
 
 bp = func.Blueprint()
 
@@ -378,6 +383,8 @@ def request_resume_review(req: func.HttpRequest) -> func.HttpResponse:
         profile = read_item("profiles", user_id, user_id)
         if not profile:
             raise NotFoundError("Profile not found")
+
+        _require_pro_or_paid_resume_review(profile)
 
         ai_endpoint = os.environ.get("AZURE_AI_ENDPOINT", os.environ.get("OPENAI_ENDPOINT", ""))
         ai_key = os.environ.get("AZURE_AI_KEY", os.environ.get("OPENAI_KEY", ""))

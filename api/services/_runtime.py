@@ -20,6 +20,7 @@ from shared.career_scraper import (
     scrape_company,
 )
 from shared.cosmos_client import query_items, upsert_item
+from shared.exceptions import AuthorizationError, ValidationError
 from shared.embeddings import (
     cosine_similarity,
     generate_embedding,
@@ -56,6 +57,10 @@ RERANK_SKIP_GAP = int(os.environ.get("RERANK_SKIP_GAP", "999"))
 FREE_TIER_DAILY_DISCOVER_LIMIT = int(os.environ.get("FREE_TIER_DAILY_DISCOVER_LIMIT", "2"))
 FREE_TIER_DAILY_LINKEDIN_LIMIT = int(os.environ.get("FREE_TIER_DAILY_LINKEDIN_LIMIT", "2"))
 FREE_TIER_DAILY_AUTOFILL_LIMIT = int(os.environ.get("FREE_TIER_DAILY_AUTOFILL_LIMIT", "5"))
+FREE_TIER_DAILY_TAILOR_LIMIT = int(os.environ.get("FREE_TIER_DAILY_TAILOR_LIMIT", "1"))
+FREE_TIER_DAILY_RESUME_UPLOAD_LIMIT = int(
+    os.environ.get("FREE_TIER_DAILY_RESUME_UPLOAD_LIMIT", "2")
+)
 FREE_TIER_COMPANY_LIMIT = int(os.environ.get("FREE_TIER_COMPANY_LIMIT", "5"))
 _UPGRADE_MESSAGE_INR = (
     "You've reached your daily free limit. "
@@ -143,12 +148,16 @@ def get_usage_summary(profile: dict, req=None) -> dict:
             "discovers": FREE_TIER_DAILY_DISCOVER_LIMIT,
             "linkedin": FREE_TIER_DAILY_LINKEDIN_LIMIT,
             "autofill_ai": FREE_TIER_DAILY_AUTOFILL_LIMIT,
+            "resume_tailor": FREE_TIER_DAILY_TAILOR_LIMIT,
+            "resume_upload": FREE_TIER_DAILY_RESUME_UPLOAD_LIMIT,
             "companies": FREE_TIER_COMPANY_LIMIT,
         },
         "usage": {
             "discovers": _count_usage_events(user_id, "discover"),
             "linkedin": _count_usage_events(user_id, "linkedin"),
             "autofill_ai": _count_usage_events(user_id, "autofill"),
+            "resume_tailor": _count_usage_events(user_id, "tailor"),
+            "resume_upload": _count_usage_events(user_id, "resume_upload"),
         },
         "upgradeMessage": get_upgrade_message(country),
         "upgradePrice": get_upgrade_price(country),
@@ -253,6 +262,54 @@ def _check_daily_autofill_quota(profile: dict) -> tuple[bool, int]:
         return False, 0
     _record_usage_event(user_id, "autofill")
     return True, FREE_TIER_DAILY_AUTOFILL_LIMIT - (used + 1)
+
+
+def _check_daily_event_quota(
+    profile: dict,
+    event_type: str,
+    limit: int,
+) -> tuple[bool, int]:
+    """Generic 24h quota check (usage_events). Records one event when allowed."""
+    if limit <= 0 or _is_premium(profile):
+        return True, -1
+    user_id = profile.get("id", "")
+    used = _count_usage_events(user_id, event_type)
+    if used >= limit:
+        return False, 0
+    _record_usage_event(user_id, event_type)
+    return True, limit - (used + 1)
+
+
+def _check_daily_tailor_quota(profile: dict) -> tuple[bool, int]:
+    return _check_daily_event_quota(profile, "tailor", FREE_TIER_DAILY_TAILOR_LIMIT)
+
+
+def _check_daily_resume_upload_quota(profile: dict) -> tuple[bool, int]:
+    return _check_daily_event_quota(
+        profile, "resume_upload", FREE_TIER_DAILY_RESUME_UPLOAD_LIMIT
+    )
+
+
+def _check_company_selection_limit(profile: dict, company_ids: list) -> None:
+    """Reject free-tier saves above FREE_TIER_COMPANY_LIMIT companies."""
+    if _is_premium(profile):
+        return
+    n = len(company_ids or [])
+    if n > FREE_TIER_COMPANY_LIMIT:
+        raise ValidationError(
+            f"Free accounts can track up to {FREE_TIER_COMPANY_LIMIT} companies. "
+            f"You selected {n}. Remove some or upgrade to Pro for unlimited tracking."
+        )
+
+
+def _require_pro_or_paid_resume_review(profile: dict) -> None:
+    """Human+AI resume review is Pro-only until paid checkout is wired."""
+    if _is_premium(profile):
+        return
+    raise AuthorizationError(
+        "Professional resume review is available on Pro or with a paid review. "
+        "Upgrade to Pro from the Pricing page to unlock this feature."
+    )
 
 
 # ── TTL-based usage tracking ────────────────────────────────────────────────

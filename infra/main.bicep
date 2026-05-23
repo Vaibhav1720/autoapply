@@ -38,7 +38,7 @@ param aiParseModel string = 'gpt41'
 param rerankSkipGap int = 15
 
 @description('Daily discover-call limit for free-tier users (0 disables).')
-param freeTierDailyDiscoverLimit int = 50
+param freeTierDailyDiscoverLimit int = 2
 
 @description('Admin token for /api/v1/admin/* endpoints. Override per environment; never commit a real value.')
 @secure()

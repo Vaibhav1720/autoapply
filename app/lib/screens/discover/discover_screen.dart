@@ -1276,6 +1276,27 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
     if (picked == null || !mounted) return;
 
+    try {
+      final api = context.read<ApiService>();
+      final usageResp = await api.get('/api/v1/profile/usage');
+      final usageData = usageResp.data is Map ? usageResp.data as Map : {};
+      final limits = usageData['limits'] as Map?;
+      final usage = usageData['usage'] as Map?;
+      final pp = context.read<ProfileProvider>();
+      if (limits != null && usage != null && !pp.isPremium) {
+        final tailorLimit = limits['resume_tailor'] as int? ?? 1;
+        final tailorUsed = usage['resume_tailor'] as int? ?? 0;
+        if (tailorUsed >= tailorLimit && usageData['tier'] == 'free') {
+          _showUpgradePopup(
+            context,
+            usageData['upgradeMessage']?.toString() ??
+                'Free plan allows 1 resume tailor per day. Upgrade to Pro for more.',
+          );
+          return;
+        }
+      }
+    } catch (_) {}
+
     final jobs = <Map<String, dynamic>>[];
     for (final g in _grouped) {
       final js = g['jobs'];
@@ -1359,6 +1380,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       );
     } on DioException catch (e) {
       if (!mounted) return;
+      if (_is429(e)) {
+        _showUpgradePopup(context, _extract429Message(e));
+        return;
+      }
       String msg = 'Could not generate suggestions. ';
       final respData = e.response?.data;
       if (respData is Map) {
@@ -1512,7 +1537,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             ));
           }
         },
-        child: SingleChildScrollView(
+        child: Opacity(
+          opacity: (_loading || _linkedInLoading) ? 0.0 : 1.0,
+          child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1672,6 +1699,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               ],
             ],
           ),
+        ),
         ),
           ),
           if (_loading || _linkedInLoading)
@@ -3469,9 +3497,8 @@ class _SearchProgressOverlay extends StatefulWidget {
 }
 
 class _SearchProgressOverlayState extends State<_SearchProgressOverlay>
-    with TickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   late final AnimationController _entry;
-  late final AnimationController _pulse;
 
   @override
   void initState() {
@@ -3480,57 +3507,68 @@ class _SearchProgressOverlayState extends State<_SearchProgressOverlay>
       vsync: this,
       duration: const Duration(milliseconds: 280),
     )..forward();
-    _pulse = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1800),
-    )..repeat(reverse: true);
   }
 
   @override
   void dispose() {
     _entry.dispose();
-    _pulse.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final curve = CurvedAnimation(parent: _entry, curve: Curves.easeOutCubic);
-    final backdropAlpha = Tween<double>(begin: 0.58, end: 0.72).animate(
-      CurvedAnimation(parent: _pulse, curve: Curves.easeInOut),
-    );
+    final isCompact = MediaQuery.sizeOf(context).width < 600;
+    // Opaque scrim on mobile so hero/tagline text does not show through the card.
     return Positioned.fill(
       child: FadeTransition(
         opacity: curve,
-        child: Stack(
-          children: [
-            // Visual dim only — clicks pass through to hero / Tailor my resume.
-            IgnorePointer(
-              child: AnimatedBuilder(
-                animation: backdropAlpha,
-                builder: (context, _) => Material(
-                  color: Colors.black.withValues(alpha: backdropAlpha.value),
-                ),
+        child: AbsorbPointer(
+          child: Stack(
+            children: [
+              // Fully opaque on mobile — no hero/tagline bleed-through.
+              ColoredBox(
+                color: isCompact
+                    ? const Color(0xFFF5F7FB)
+                    : const Color(0xFF1e1b4b).withValues(alpha: 0.88),
               ),
-            ),
-            SafeArea(
-              child: Center(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                  child: FadeTransition(
-                    opacity: curve,
-                    child: ScaleTransition(
-                      scale: Tween<double>(begin: 0.92, end: 1.0).animate(curve),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 580),
-                        child: widget.child,
+              SafeArea(
+                child: Align(
+                  alignment: isCompact ? Alignment.topCenter : Alignment.center,
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      isCompact ? 12 : 24,
+                      16,
+                      isCompact ? 16 : 24,
+                    ),
+                    child: FadeTransition(
+                      opacity: curve,
+                      child: ScaleTransition(
+                        scale: Tween<double>(begin: 0.94, end: 1.0).animate(curve),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: 580,
+                            maxHeight: isCompact
+                                ? MediaQuery.sizeOf(context).height * 0.88
+                                : double.infinity,
+                          ),
+                          child: Material(
+                            color: Colors.white,
+                            elevation: isCompact ? 8 : 12,
+                            shadowColor: Colors.black26,
+                            borderRadius: BorderRadius.circular(20),
+                            clipBehavior: Clip.antiAlias,
+                            child: widget.child,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
