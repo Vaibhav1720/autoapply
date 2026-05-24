@@ -9,3 +9,7 @@ import 'google_sign_in_helper_stub.dart'
 /// Throws [UnsupportedError] on non-web platforms.
 Future<String?> signInWithGoogle({required String clientId}) =>
     impl.signInWithGoogle(clientId: clientId);
+
+/// On web, completes sign-in after a full-page Google OAuth redirect (mobile).
+Future<String?> consumeRedirectOAuthResult() =>
+    impl.consumeRedirectOAuthResult();

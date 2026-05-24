@@ -200,9 +200,14 @@ def _calibrate_score(raw: float) -> int:
 
 def _check_daily_quota(profile: dict, search_id: str | None = None) -> tuple[bool, int]:
     """Returns (allowed, remaining). Tracks each call in usage_events with 24h TTL."""
+    user_id = profile.get("id", "")
     if FREE_TIER_DAILY_DISCOVER_LIMIT <= 0:
+        if user_id:
+            _record_usage_event(user_id, "discover", search_id)
         return True, -1
     if _is_premium(profile):
+        if user_id:
+            _record_usage_event(user_id, "discover", search_id)
         return True, -1
     override = profile.get("dailyDiscoverLimit")
     try:
@@ -211,7 +216,6 @@ def _check_daily_quota(profile: dict, search_id: str | None = None) -> tuple[boo
     except (TypeError, ValueError):
         limit = FREE_TIER_DAILY_DISCOVER_LIMIT
 
-    user_id = profile.get("id", "")
     used = _count_usage_events(user_id, "discover")
 
     if used >= limit:
@@ -242,9 +246,11 @@ def _is_premium(profile: dict) -> bool:
 
 def _check_daily_linkedin_quota(profile: dict) -> tuple[bool, int]:
     """Returns (allowed, remaining) for LinkedIn searches. TTL-based tracking."""
-    if FREE_TIER_DAILY_LINKEDIN_LIMIT <= 0 or _is_premium(profile):
-        return True, -1
     user_id = profile.get("id", "")
+    if FREE_TIER_DAILY_LINKEDIN_LIMIT <= 0 or _is_premium(profile):
+        if user_id:
+            _record_usage_event(user_id, "linkedin")
+        return True, -1
     used = _count_usage_events(user_id, "linkedin")
     if used >= FREE_TIER_DAILY_LINKEDIN_LIMIT:
         return False, 0
@@ -254,9 +260,11 @@ def _check_daily_linkedin_quota(profile: dict) -> tuple[bool, int]:
 
 def _check_daily_autofill_quota(profile: dict) -> tuple[bool, int]:
     """Returns (allowed, remaining) for AI autofill suggestions. TTL-based tracking."""
-    if FREE_TIER_DAILY_AUTOFILL_LIMIT <= 0 or _is_premium(profile):
-        return True, -1
     user_id = profile.get("id", "")
+    if FREE_TIER_DAILY_AUTOFILL_LIMIT <= 0 or _is_premium(profile):
+        if user_id:
+            _record_usage_event(user_id, "autofill")
+        return True, -1
     used = _count_usage_events(user_id, "autofill")
     if used >= FREE_TIER_DAILY_AUTOFILL_LIMIT:
         return False, 0
@@ -270,9 +278,11 @@ def _check_daily_event_quota(
     limit: int,
 ) -> tuple[bool, int]:
     """Generic 24h quota check (usage_events). Records one event when allowed."""
-    if limit <= 0 or _is_premium(profile):
-        return True, -1
     user_id = profile.get("id", "")
+    if limit <= 0 or _is_premium(profile):
+        if user_id:
+            _record_usage_event(user_id, event_type)
+        return True, -1
     used = _count_usage_events(user_id, event_type)
     if used >= limit:
         return False, 0

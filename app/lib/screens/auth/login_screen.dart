@@ -19,6 +19,40 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   bool _busy = false;
 
+  @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _completeRedirectSignIn();
+      });
+    }
+  }
+
+  /// After mobile full-page Google OAuth, oauth2-redirect.html stores the token
+  /// in sessionStorage and sends the user back here.
+  Future<void> _completeRedirectSignIn() async {
+    if (_busy || !kIsWeb) return;
+    final idToken = await google.consumeRedirectOAuthResult();
+    if (idToken == null || idToken.isEmpty || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      final auth = context.read<AuthProvider>();
+      auth.clearError();
+      final ok = await auth.loginWithGoogle(idToken);
+      if (!mounted) return;
+      if (ok) context.go('/');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Sign-in failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _signInWithGoogle() async {
     if (AzureConfig.googleClientId.startsWith('REPLACE_ME')) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(

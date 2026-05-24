@@ -189,6 +189,7 @@ class _OverviewTab extends StatelessWidget {
     final users = summary!['users'] as Map<String, dynamic>? ?? {};
     final billing = summary!['billing'] as Map<String, dynamic>? ?? {};
     final funnel = summary!['discoveryFunnel'] as Map<String, dynamic>? ?? {};
+    final usage24h = summary!['usage24h'] as Map<String, dynamic>? ?? {};
     final series = (usage?['series'] as List?) ?? [];
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -226,6 +227,16 @@ class _OverviewTab extends StatelessWidget {
               _StatCard(label: 'Avg duration',
                   value: '${((funnel['avgDurationMs'] ?? 0) as int) ~/ 1000}s',
                   icon: Icons.timer, color: Colors.brown),
+              _StatCard(label: 'Discover (24h)', value: '${usage24h['discover'] ?? 0}',
+                  icon: Icons.explore, color: Colors.blueGrey),
+              _StatCard(label: 'LinkedIn (24h)', value: '${usage24h['linkedin'] ?? 0}',
+                  icon: Icons.public, color: const Color(0xFF0A66C2)),
+              _StatCard(label: 'Autofill (24h)', value: '${usage24h['autofill'] ?? 0}',
+                  icon: Icons.auto_fix_high, color: Colors.cyan),
+              _StatCard(label: 'Tailor (24h)', value: '${usage24h['tailor'] ?? 0}',
+                  icon: Icons.content_cut, color: Colors.pink),
+              _StatCard(label: 'Resume upload (24h)', value: '${usage24h['resume_upload'] ?? 0}',
+                  icon: Icons.upload_file, color: Colors.deepOrange),
             ],
           ),
           const SizedBox(height: 24),
@@ -325,6 +336,10 @@ class _UsersTabState extends State<_UsersTab> {
                   DataColumn(label: Text('Last seen')),
                   DataColumn(label: Text('Calls'), numeric: true),
                   DataColumn(label: Text('Disc 24h'), numeric: true),
+                  DataColumn(label: Text('LI 24h'), numeric: true),
+                  DataColumn(label: Text('Auto 24h'), numeric: true),
+                  DataColumn(label: Text('Tailor 24h'), numeric: true),
+                  DataColumn(label: Text('Upload 24h'), numeric: true),
                 ],
                 rows: [
                   for (final u in list)
@@ -361,6 +376,10 @@ class _UsersTabState extends State<_UsersTab> {
                         DataCell(Text(_shortDate(u['lastSeen']))),
                         DataCell(Text('${u['apiCalls'] ?? 0}')),
                         DataCell(Text('${u['discoverUsage24h'] ?? 0}')),
+                        DataCell(Text('${u['linkedinUsage24h'] ?? 0}')),
+                        DataCell(Text('${u['autofillUsage24h'] ?? 0}')),
+                        DataCell(Text('${u['tailorUsage24h'] ?? 0}')),
+                        DataCell(Text('${u['resumeUploadUsage24h'] ?? 0}')),
                       ],
                     ),
                 ],
@@ -512,6 +531,7 @@ class _UserDetailDialogState extends State<_UserDetailDialog> {
     final payments = (d['payments'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     final runs = (d['discoverRuns'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     final totals = (d['totals'] as Map?)?.cast<String, dynamic>() ?? {};
+    final usage24h = (d['usage24h'] as Map?)?.cast<String, dynamic>() ?? {};
 
     return SingleChildScrollView(
       child: Column(
@@ -552,6 +572,13 @@ class _UserDetailDialogState extends State<_UserDetailDialog> {
                 style: const TextStyle(fontSize: 11),
               ),
           ],
+          _detailSection('Quota usage (24h rolling)', [
+            _kv('Discover searches', '${usage24h['discover'] ?? 0}'),
+            _kv('LinkedIn searches', '${usage24h['linkedin'] ?? 0}'),
+            _kv('AI autofill', '${usage24h['autofill'] ?? 0}'),
+            _kv('Resume tailor', '${usage24h['tailor'] ?? 0}'),
+            _kv('Resume uploads', '${usage24h['resume_upload'] ?? 0}'),
+          ]),
           _detailSection('Search activity (${widget.days}d)', [
             _kv('Discover calls', '${totals['calls'] ?? 0}'),
             _kv('Jobs scraped', '${totals['scraped'] ?? 0}'),

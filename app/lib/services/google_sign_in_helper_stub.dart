@@ -3,3 +3,5 @@
 Future<String?> signInWithGoogle({required String clientId}) {
   throw UnsupportedError('Google Sign-In is currently only wired for web.');
 }
+
+Future<String?> consumeRedirectOAuthResult() async => null;

@@ -4,6 +4,7 @@
 /// - Logged-in users submit via POST /api/v1/feedback (rich category tracking).
 /// - Guest users submit via POST /api/v1/contact (public endpoint).
 /// - Direct email link always visible as fallback.
+library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

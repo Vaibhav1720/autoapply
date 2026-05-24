@@ -1,4 +1,5 @@
 # --- Secrets / signing material (never commit) ---
+**/bedrock-long-term-api-key*.csv
 *.pem
 *.crx
 *.key

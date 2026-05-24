@@ -3,6 +3,7 @@
 /// Accessible without authentication (registered as public routes).
 /// Navigation: context.push('/privacy'), '/terms', or '/refund'
 /// All three share the same shell; the route determines the initial tab.
+library;
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';

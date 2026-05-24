@@ -190,10 +190,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
             duration: const Duration(seconds: 5)),
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not generate suggestions. Please try again.'),
             backgroundColor: AppTheme.error),
       );
+      }
     } finally {
       if (mounted) setState(() => _suggesting = false);
     }

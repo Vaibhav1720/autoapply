@@ -63,6 +63,57 @@ def _since(days: int) -> datetime:
     return datetime.now(timezone.utc) - timedelta(days=days)
 
 
+_USAGE_EVENT_TYPES = frozenset({
+    "discover", "linkedin", "autofill", "tailor", "resume_upload",
+})
+
+
+def _aggregate_usage_24h() -> dict[str, dict[str, int]]:
+    """Rolling 24h usage counts per user from usage_events."""
+    usage_by_user: dict[str, dict[str, int]] = defaultdict(lambda: {
+        "discover": 0,
+        "linkedin": 0,
+        "autofill": 0,
+        "tailor": 0,
+        "resume_upload": 0,
+    })
+    try:
+        since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        usage_evts = query_items(
+            "usage_events",
+            "SELECT c.userId, c.type FROM c WHERE c.ts >= @since",
+            [{"name": "@since", "value": since_24h}],
+        )
+        for ue in usage_evts or []:
+            uid = ue.get("userId")
+            t = (ue.get("type") or "").lower()
+            if uid and t in _USAGE_EVENT_TYPES:
+                usage_by_user[uid][t] += 1
+    except Exception as ue_err:
+        logger.warning("admin usage_events query failed: %s", ue_err)
+    return usage_by_user
+
+
+def _usage_24h_for_user(user_id: str) -> dict[str, int]:
+    """24h usage for one user (user detail drill-down)."""
+    counts = {t: 0 for t in _USAGE_EVENT_TYPES}
+    try:
+        since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        rows = query_items(
+            "usage_events",
+            "SELECT c.type FROM c WHERE c.userId = @uid AND c.ts >= @since",
+            [{"name": "@uid", "value": user_id}, {"name": "@since", "value": since_24h}],
+            partition_key=user_id,
+        )
+        for ue in rows or []:
+            t = (ue.get("type") or "").lower()
+            if t in counts:
+                counts[t] += 1
+    except Exception as ue_err:
+        logger.warning("admin user usage_events query failed: %s", ue_err)
+    return counts
+
+
 def _fmt_amount_inr_usd(price_inr, price_usd, currency: str = "") -> str:
     inr = int(price_inr) if price_inr is not None else 0
     usd = float(price_usd) if price_usd is not None else 0
@@ -242,6 +293,11 @@ def admin_dashboard_summary(req: func.HttpRequest) -> func.HttpResponse:
             if prov == "lemonsqueezy" or sub.get("lsSubscriptionId"):
                 ls_users += 1
 
+        usage_totals = {t: 0 for t in _USAGE_EVENT_TYPES}
+        for u_counts in _aggregate_usage_24h().values():
+            for t, n in u_counts.items():
+                usage_totals[t] += n
+
         return success_response({
             "windowDays": days,
             "users": {
@@ -264,6 +320,7 @@ def admin_dashboard_summary(req: func.HttpRequest) -> func.HttpResponse:
                 "errorEvents": errors,
                 "avgDurationMs": (total_duration_ms // api_calls) if api_calls else 0,
             },
+            "usage24h": usage_totals,
         })
     except AppException as e:
         return error_response(e)
@@ -306,23 +363,8 @@ def admin_dashboard_users(req: func.HttpRequest) -> func.HttpResponse:
         except Exception as pay_err:
             logger.warning("admin users: subscriptions query failed: %s", pay_err)
 
-        # Quota usage (24h rolling window in usage_events)
-        usage_by_user: dict[str, dict] = defaultdict(lambda: {
-            "discover": 0, "linkedin": 0, "autofill": 0,
-        })
-        try:
-            usage_evts = query_items(
-                "usage_events",
-                "SELECT c.userId, c.type FROM c WHERE c.ts >= @since",
-                [{"name": "@since", "value": since_iso}],
-            )
-            for ue in usage_evts:
-                uid = ue.get("userId")
-                t = (ue.get("type") or "").lower()
-                if uid and t in ("discover", "linkedin", "autofill"):
-                    usage_by_user[uid][t] += 1
-        except Exception as ue_err:
-            logger.warning("admin users: usage_events query failed: %s", ue_err)
+        # Quota usage — rolling 24h window from usage_events (all tiers).
+        usage_by_user = _aggregate_usage_24h()
 
         # Latest discover run per user (queries + locations)
         run_by_user: dict[str, dict] = {}
@@ -429,6 +471,8 @@ def admin_dashboard_users(req: func.HttpRequest) -> func.HttpResponse:
                 "discoverUsage24h": u_usage.get("discover", 0),
                 "linkedinUsage24h": u_usage.get("linkedin", 0),
                 "autofillUsage24h": u_usage.get("autofill", 0),
+                "tailorUsage24h": u_usage.get("tailor", 0),
+                "resumeUploadUsage24h": u_usage.get("resume_upload", 0),
                 "todayDiscoverCount": (u.get("usageCounters") or {}).get("dailyDiscover", 0),
                 **billing,
                 **pay_sum,
@@ -861,6 +905,7 @@ def admin_dashboard_user_detail(req: func.HttpRequest) -> func.HttpResponse:
 
         billing = _subscription_fields(profile)
         billing.update(_payments_summary(payments))
+        usage_24h = _usage_24h_for_user(uid)
 
         return success_response({
             "userId": uid,
@@ -868,6 +913,7 @@ def admin_dashboard_user_detail(req: func.HttpRequest) -> func.HttpResponse:
             "billing": billing,
             "payments": payments,
             "discoverRuns": runs,
+            "usage24h": usage_24h,
             "windowDays": days,
             "events": evts,
             "totals": {
