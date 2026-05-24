@@ -2339,7 +2339,7 @@ _INDUSTRY_TO_DISCIPLINES = {
     "data_ai":        {"ml", "data"},
     "product_design": {"product", "design"},
     "finance":        {"finance"},
-    "marketing":      {"sales"},
+    "marketing":      {"marketing", "sales"},
     "healthcare":     set(),
     "legal":          set(),
     "operations":     set(),
@@ -2351,6 +2351,29 @@ _INDUSTRY_TO_DISCIPLINES = {
     "consulting":     set(),
     "other":          set(),
 }
+
+
+def _disciplines_from_text(text: str, *, exclude: set[str] | None = None) -> set[str]:
+    """Infer discipline buckets from a job title or search query string."""
+    import re as _re
+    exclude = exclude or set()
+    out: set[str] = set()
+    tl = (text or "").lower()
+    for disc, toks in _DISCIPLINE_TITLE_TOKENS.items():
+        if disc in exclude:
+            continue
+        for t in toks:
+            if _re.search(r'\b' + _re.escape(t) + r'\b', tl):
+                out.add(disc)
+                break
+    return out
+
+
+def _disciplines_from_queries(queries: list[str]) -> set[str]:
+    out: set[str] = set()
+    for q in queries or []:
+        out |= _disciplines_from_text(q)
+    return out
 
 
 def _user_disciplines(
@@ -2395,7 +2418,13 @@ def _user_disciplines(
     return set()
 
 
-def match_jobs_to_profile(jobs: list[dict], profile: dict) -> list[dict]:
+def match_jobs_to_profile(
+    jobs: list[dict],
+    profile: dict,
+    *,
+    search_queries: list[str] | None = None,
+    pivot: bool = False,
+) -> list[dict]:
     user_skills = set()
     for s in (profile.get("skills") or {}).get("technical", []): user_skills.add(s.lower())
     for exp in profile.get("experience") or []:
@@ -2488,6 +2517,21 @@ def match_jobs_to_profile(jobs: list[dict], profile: dict) -> list[dict]:
         user_exp_years = 0
     logger.info("[MATCH] resolved user_exp_years=%s (explicit=%s parsed=%s real_jobs=%d)",
                 user_exp_years, explicit_years, parsed_years, len(_real_jobs))
+
+    # Resolve search intent early — drives both the experience filter's
+    # functional-manager exception and the eng/non-eng discipline gates.
+    _industry_hint = (prefs.get("industry") or "").strip().lower() or None
+    if pivot and search_queries:
+        query_disc = _disciplines_from_queries(search_queries)
+        user_disc = query_disc or _user_disciplines(
+            user_skills, user_role_phrases, industry=_industry_hint,
+        )
+        logger.info("[MATCH] pivot search intent disc=%s queries=%s",
+                    sorted(user_disc), search_queries[:3])
+    else:
+        user_disc = _user_disciplines(
+            user_skills, user_role_phrases, industry=_industry_hint,
+        )
 
     # Level keywords for experience-based relevance
     _junior = {"intern", "internship", "entry", "junior", "jr", "graduate", "new grad", "associate"}
@@ -2666,6 +2710,15 @@ def match_jobs_to_profile(jobs: list[dict], profile: dict) -> list[dict]:
                         continue
 
             if not is_member_of_staff and _hard_drop_levels and (title_words & _hard_drop_levels):
+                overlap = title_words & _hard_drop_levels
+                # Functional managers ("Marketing Manager", "Product Manager")
+                # are discipline-specific IC roles — keep when they match the
+                # user's chosen/search discipline, not people-management.
+                if "manager" in overlap and user_disc:
+                    job_fn = _disciplines_from_text(title_lower, exclude={"manager"})
+                    if job_fn & user_disc:
+                        filtered.append(job)
+                        continue
                 dropped += 1
                 continue
 
@@ -2808,15 +2861,6 @@ def match_jobs_to_profile(jobs: list[dict], profile: dict) -> list[dict]:
     # NOTE: City preferences are applied via loc score demotion + LLM
     # rerank drop, not as a hard filter. This avoids zero-result matches
     # when the company has no openings in the preferred city.
-
-    # Detect user disciplines once for discipline-mismatch penalty.
-    # Pass the explicit industry from preferences -- when the user picked a
-    # non-tech industry tag in the discover UI we want that to dominate the
-    # resume-derived inference (e.g. SWE resume + product/design tag must
-    # NOT be treated as an engineering candidate, otherwise the v20 filter
-    # below would drop every Product Designer / UX Designer title).
-    _industry_hint = (profile.get("preferences") or {}).get("industry") or ""
-    user_disc = _user_disciplines(user_skills, user_role_phrases, industry=_industry_hint)
 
     # Helper: does the job title clearly conflict with user's disciplines?
     import re as _re_disc

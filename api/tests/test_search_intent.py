@@ -215,6 +215,45 @@ def test_design_industry_drops_engineer_jobs_for_swe_profile() -> None:
     assert "Backend Engineer" not in titles
 
 
+def test_marketing_industry_keeps_marketing_manager_roles() -> None:
+    """Marketing industry + SWE resume should surface Marketing Manager titles."""
+    from shared.career_scraper import match_jobs_to_profile
+
+    jobs = [
+        _job("m1", "Marketing Manager"),
+        _job("m2", "Brand Marketing Manager"),
+        _job("e1", "Software Engineer"),
+    ]
+    profile = _swe_profile_with_industry("marketing")
+    out = match_jobs_to_profile(jobs, profile)
+    titles = [j["title"] for j in out]
+    assert "Marketing Manager" in titles
+    assert "Brand Marketing Manager" in titles
+    assert "Software Engineer" not in titles
+
+
+def test_pivot_marketing_search_for_swe_profile() -> None:
+    """Off-resume LinkedIn search ('Marketing Manager') must not be zeroed by
+    the engineering-candidate filter when pivot is detected."""
+    from shared.career_scraper import match_jobs_to_profile
+
+    jobs = [
+        _job("m1", "Marketing Manager"),
+        _job("m2", "Senior Marketing Manager"),
+        _job("e1", "Software Engineer"),
+    ]
+    profile = _swe_profile_with_industry("tech")
+    out = match_jobs_to_profile(
+        jobs, profile,
+        search_queries=["Marketing Manager"],
+        pivot=True,
+    )
+    titles = [j["title"] for j in out]
+    assert "Marketing Manager" in titles
+    assert "Senior Marketing Manager" in titles
+    assert "Software Engineer" not in titles
+
+
 def test_tech_industry_swe_keeps_engineer_jobs_and_drops_hr() -> None:
     """Sanity: don't break the engineer-staying-as-engineer path.
 

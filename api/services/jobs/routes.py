@@ -17,7 +17,7 @@ from shared.career_scraper import (
     bulk_linkedin_for_companies,
     match_jobs_to_profile,
 )
-from shared.cosmos_client import read_item, upsert_item
+from shared.cosmos_client import read_item, upsert_item, query_items
 from shared.telemetry import record as record_match_event
 from shared.embeddings import (
     cosine_similarity,
@@ -131,7 +131,7 @@ def _extract_resume_titles(profile: dict) -> list[str]:
 
 
 def _level_qualify_queries(search_queries: list[str], profile: dict,
-                           pivot: bool = False) -> None:
+                           pivot: bool = False) -> bool:
     """Broaden search queries using the user's actual resume titles.
 
     Strategy:
@@ -194,7 +194,7 @@ def _level_qualify_queries(search_queries: list[str], profile: dict,
             )
 
     if pivot:
-        return
+        return True
 
     have_lower = {(q or "").lower() for q in search_queries}
     added: list[str] = []
@@ -221,6 +221,7 @@ def _level_qualify_queries(search_queries: list[str], profile: dict,
         search_queries.extend(added[:room])
         logger.info("[RESUME_TITLES] added %d resume-title queries: %s",
                     min(len(added), room), added[:room])
+    return pivot
 
 
 def _resolve_exp_years(profile: dict) -> int | float:
@@ -595,7 +596,7 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
                         search_queries.append("software engineer")
                 _maybe_add_eng_fallbacks(
                     search_queries, industry=(prefs.get("industry") or ""))
-                _level_qualify_queries(search_queries, profile, pivot=pivot_mode)
+                pivot_mode = _level_qualify_queries(search_queries, profile, pivot=pivot_mode)
 
                 raw_jobs = []
                 seen_ids = set()
@@ -611,7 +612,10 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
                         except Exception:
                             pass
 
-                matched = match_jobs_to_profile(raw_jobs, profile)
+                matched = match_jobs_to_profile(
+                    raw_jobs, profile,
+                    search_queries=search_queries, pivot=pivot_mode,
+                )
                 # ── Per-company minimum-yield floor ──
                 # Goal: a user who deliberately selected this company should
                 # see at least MIN_KEEP_PCT of what we scraped, even when the
@@ -1352,7 +1356,7 @@ def discover_company_jobs(req: func.HttpRequest) -> func.HttpResponse:
                 search_queries.append(q)
         if query and query not in search_queries:
             search_queries.append(query)
-        if not search_queries and keywords:
+        if not search_queries and keywords and "queries" not in body:
             for kw in keywords[:2]:
                 if kw not in search_queries:
                     search_queries.append(kw)
@@ -1379,7 +1383,7 @@ def discover_company_jobs(req: func.HttpRequest) -> func.HttpResponse:
             elif len(profile.get("experience") or []) > 0:
                 exp_years = len(profile.get("experience") or []) * 2
 
-        _level_qualify_queries(search_queries, profile, pivot=pivot_mode)
+        pivot_mode = _level_qualify_queries(search_queries, profile, pivot=pivot_mode)
 
         logger.info("%s SEARCH queries=%s locations=%s exp=%s pivot=%s",
                     log_tag, search_queries, location_queries, exp_years,
@@ -1432,7 +1436,10 @@ def discover_company_jobs(req: func.HttpRequest) -> func.HttpResponse:
         if locations:
             raw_jobs = _filter_jobs_by_location(raw_jobs, locations, log_tag)
 
-        matched = match_jobs_to_profile(raw_jobs, profile)
+        matched = match_jobs_to_profile(
+            raw_jobs, profile,
+            search_queries=search_queries, pivot=pivot_mode,
+        )
         logger.info("%s MATCHED %d jobs (from %d filtered)", log_tag, len(matched), len(raw_jobs))
         for i, j in enumerate(matched):
             logger.info("%s SCORED #%d id=%s title='%s' matchScore=%d skillScore=%d expScore=%d",
@@ -1783,8 +1790,18 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
             raise RateLimitError(get_upgrade_message(country))
 
         prefs = profile.get("preferences") or {}
+        client_sent_queries = "queries" in body
         if not req_queries:
-            req_queries = [k for k in (prefs.get("keywords") or []) if k][:2]
+            if client_sent_queries:
+                # UI sent an explicit (possibly empty) query list — do not
+                # resurrect stale profile keywords from a prior search.
+                user_exp = profile.get("experience") or []
+                if user_exp and isinstance(user_exp[0], dict):
+                    req_queries = [user_exp[0].get("title", "software engineer")]
+                else:
+                    req_queries = ["software engineer"]
+            else:
+                req_queries = [k for k in (prefs.get("keywords") or []) if k][:2]
         if not req_queries:
             user_exp = profile.get("experience") or []
             if user_exp and isinstance(user_exp[0], dict):
@@ -1806,7 +1823,7 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
         # also search "VP of Product Manager", "Director of Product Manager" etc.
         # Skipped automatically (or via pivot=true) when the search is
         # off-discipline from the user's resume — see _level_qualify_queries.
-        _level_qualify_queries(req_queries, profile, pivot=pivot_mode)
+        pivot_mode = _level_qualify_queries(req_queries, profile, pivot=pivot_mode)
 
         log_tag = f"[LI-SEARCH][{profile.get('email', user_id)}]"
         logger.info("%s queries=%s locations=%s pivot=%s",
@@ -1827,9 +1844,12 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
                 partition_key="linkedin-pool",
             )
             if rows:
-                cached_pool = rows[0].get("cards")
-                if isinstance(cached_pool, list):
+                _cached = rows[0].get("cards")
+                if isinstance(_cached, list) and _cached:
+                    cached_pool = _cached
                     logger.info("%s POOL_CACHE HIT key=%s n=%d", log_tag, _cache_key, len(cached_pool))
+                elif isinstance(_cached, list):
+                    logger.info("%s POOL_CACHE empty for key=%s — refetching", log_tag, _cache_key)
         except Exception as e:
             logger.warning("%s POOL_CACHE read failed: %s", log_tag, e)
 
@@ -1870,21 +1890,23 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
                         break
             cached_pool = all_cards
             logger.info("%s fetched %d LinkedIn cards across %d pairs", log_tag, len(cached_pool), len(pairs))
-            # Write to Cosmos cache
-            try:
-                upsert_item("jobs", {
-                    "id": _cache_key,
-                    "companyId": "linkedin-pool",
-                    "kind": "li_pool_cache",
-                    "cards": cached_pool,
-                    "queries": req_queries,
-                    "locations": req_locations,
-                    "cachedAt": datetime.now(timezone.utc).isoformat(),
-                    "ttl": _cache_ttl,
-                })
-                logger.info("%s POOL_CACHE WRITE key=%s n=%d ttl=%ds", log_tag, _cache_key, len(cached_pool), _cache_ttl)
-            except Exception as e:
-                logger.warning("%s POOL_CACHE write failed: %s", log_tag, e)
+            # Write to Cosmos cache (skip empty pools — a transient LinkedIn
+            # failure should not poison the cache for 24h).
+            if cached_pool:
+                try:
+                    upsert_item("jobs", {
+                        "id": _cache_key,
+                        "companyId": "linkedin-pool",
+                        "kind": "li_pool_cache",
+                        "cards": cached_pool,
+                        "queries": req_queries,
+                        "locations": req_locations,
+                        "cachedAt": datetime.now(timezone.utc).isoformat(),
+                        "ttl": _cache_ttl,
+                    })
+                    logger.info("%s POOL_CACHE WRITE key=%s n=%d ttl=%ds", log_tag, _cache_key, len(cached_pool), _cache_ttl)
+                except Exception as e:
+                    logger.warning("%s POOL_CACHE write failed: %s", log_tag, e)
 
         # ── Convert cards to job dicts, auto-group by employer ────────
         scrape_now = datetime.now(timezone.utc).isoformat()
@@ -1914,7 +1936,10 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
         if req_locations and any(l.strip() for l in req_locations):
             jobs = _filter_jobs_by_location(jobs, req_locations, log_tag)
 
-        matched = match_jobs_to_profile(jobs, profile)
+        matched = match_jobs_to_profile(
+            jobs, profile,
+            search_queries=req_queries, pivot=pivot_mode,
+        )
         logger.info("%s MATCHED %d/%d jobs", log_tag, len(matched), len(jobs))
 
         # ── Embedding + scoring ───────────────────────────────────────

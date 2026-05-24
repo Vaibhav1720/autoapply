@@ -257,6 +257,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   void _onIndustryChanged(String id) {
     if (id == _industryId) return;
+    _invalidateLinkedInResults();
     setState(() => _industryId = id);
     // Persist the choice so the next session and the backend prompts use it.
     final pp = context.read<ProfileProvider>();
@@ -270,6 +271,34 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   /// Save the chips currently in the search bar to `profile.preferences`
   /// so the tailor flow (and any other downstream surface) can read the
   /// user's CURRENT intent. Fire-and-forget; don't block the search.
+  bool _listEq(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// Drop stale LinkedIn results whenever the user edits search chips so we
+  /// don't keep showing (or dedup-skipping) a prior query's empty list.
+  void _invalidateLinkedInResults() {
+    if (_linkedInGroups.isEmpty &&
+        _linkedInGroup == null &&
+        _linkedInPoolSize == null &&
+        _linkedInError == null &&
+        _lastLinkedInSig == null) {
+      return;
+    }
+    setState(() {
+      _linkedInGroups = [];
+      _linkedInGroup = null;
+      _linkedInPoolSize = null;
+      _linkedInError = null;
+      _lastLinkedInSig = null;
+      _lastLinkedInAt = null;
+    });
+  }
+
   void _persistSearchPreferences() {
     try {
       final pp = context.read<ProfileProvider>();
@@ -280,17 +309,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       bool dirty = false;
       final prevKw = (existing['keywords'] as List?)?.cast<String>() ?? const [];
       final prevLoc = (existing['locations'] as List?)?.cast<String>() ?? const [];
-      if (titles.isNotEmpty &&
-          (prevKw.length != titles.length ||
-              !List.generate(titles.length, (i) => prevKw[i] == titles[i])
-                  .every((b) => b))) {
+      // Always mirror the current chips — including clearing keywords when the
+      // user removed every title so the backend doesn't reuse a stale query.
+      if (!_listEq(prevKw, titles)) {
         existing['keywords'] = titles;
         dirty = true;
       }
-      if (locs.isNotEmpty &&
-          (prevLoc.length != locs.length ||
-              !List.generate(locs.length, (i) => prevLoc[i] == locs[i])
-                  .every((b) => b))) {
+      if (!_listEq(prevLoc, locs)) {
         existing['locations'] = locs;
         dirty = true;
       }
@@ -353,7 +378,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           final restoredLiGroups = <Map<String, dynamic>>[];
           if (liGroupsRaw is List) {
             for (final g in liGroupsRaw) {
-              if (g is Map) restoredLiGroups.add(Map<String, dynamic>.from(g));
+              if (g is! Map) continue;
+              final m = Map<String, dynamic>.from(g);
+              final jobs = m['jobs'];
+              if (jobs is! List || jobs.isEmpty) continue;
+              restoredLiGroups.add(m);
             }
           }
 
@@ -363,7 +392,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           if (mounted) {
             setState(() {
               _grouped = groups;
-              _linkedInGroup = li;
+              _linkedInGroup =
+                  restoredLiGroups.isNotEmpty ? li : null;
               _linkedInGroups = restoredLiGroups;
               _linkedInPoolSize = decoded['linkedInPoolSize'] as int?;
               _totalFound = (decoded['totalFound'] is num)
@@ -395,6 +425,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               if (sigRaw is String && sigRaw.isNotEmpty) {
                 _lastSearchSig = sigRaw;
               }
+              final liSigRaw = decoded['lastLinkedInSig'];
+              if (liSigRaw is String && liSigRaw.isNotEmpty) {
+                _lastLinkedInSig = liSigRaw;
+              }
             });
           }
         }
@@ -424,11 +458,20 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         // refresh would invalidate the dedup window and the next search
         // gesture (e.g. pull-to-refresh) would re-scrape everything.
         'lastSearchSig': _lastSearchSig,
+        'lastLinkedInSig': _lastLinkedInSig,
         // NOTE: we intentionally do NOT persist `lastSearchAt`. The dedup
         // window is in-memory only so a browser refresh / hard refresh
         // resets it, which means the next Search click after a reload
         // runs fresh instead of popping a "cached results" dialog.
       };
+      // Don't persist empty LinkedIn sections — a failed/zeroed run should
+      // not reload as if it were a valid cached result.
+      if (_linkedInGroups.isEmpty) {
+        payload.remove('linkedIn');
+        payload.remove('linkedInGroups');
+        payload.remove('linkedInPoolSize');
+        payload.remove('lastLinkedInSig');
+      }
       html.window.localStorage[_kDiscoverCacheKey] = jsonEncode(payload);
     } catch (e) {
       debugPrint('[discover] cache save failed: $e');
@@ -886,23 +929,36 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   void _addTitle(String value) {
     final v = value.trim();
     if (v.isEmpty) return;
+    _invalidateLinkedInResults();
     setState(() {
       if (!_titles.contains(v)) _titles.add(v);
       _queryCtrl.clear();
     });
+    _persistSearchPreferences();
   }
 
   void _addLocation(String value) {
     final v = value.trim();
     if (v.isEmpty) return;
+    _invalidateLinkedInResults();
     setState(() {
       if (!_locations.contains(v)) _locations.add(v);
       _locationCtrl.clear();
     });
+    _persistSearchPreferences();
   }
 
-  void _removeTitle(String v) => setState(() => _titles.remove(v));
-  void _removeLocation(String v) => setState(() => _locations.remove(v));
+  void _removeTitle(String v) {
+    _invalidateLinkedInResults();
+    setState(() => _titles.remove(v));
+    _persistSearchPreferences();
+  }
+
+  void _removeLocation(String v) {
+    _invalidateLinkedInResults();
+    setState(() => _locations.remove(v));
+    _persistSearchPreferences();
+  }
 
   // ── LinkedIn search (separate from per-company discover) ────────────────
   Future<void> _searchLinkedIn({bool force = false}) async {
@@ -920,6 +976,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     if (!await ensureResumeUploaded(context, action: 'rank LinkedIn jobs for you')) {
       return;
     }
+
+    _persistSearchPreferences();
 
     // Pre-check quota before hitting the API
     try {
@@ -941,10 +999,15 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       }
     } catch (_) {}
 
+    _persistSearchPreferences();
+
     final sig = _currentSearchSig();
     final fresh = _lastLinkedInAt != null &&
         DateTime.now().difference(_lastLinkedInAt!) < _kDedupWindow;
-    if (!force && _linkedInGroup != null && _lastLinkedInSig == sig && fresh) {
+    if (!force &&
+        _linkedInGroups.isNotEmpty &&
+        _lastLinkedInSig == sig &&
+        fresh) {
       final messenger = ScaffoldMessenger.maybeOf(context);
       messenger?.hideCurrentSnackBar();
       messenger?.showSnackBar(SnackBar(
@@ -1031,20 +1094,27 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       if (mounted) {
         setState(() {
           _linkedInGroups = liGroups;
-          _linkedInGroup = {
-            'company': 'LinkedIn Jobs',
-            'jobs': allLiJobs,
-            'count': data['count'] ?? allLiJobs.length,
-            'source': 'linkedin',
-          };
+          _linkedInGroup = liGroups.isNotEmpty
+              ? {
+                  'company': 'LinkedIn Jobs',
+                  'jobs': allLiJobs,
+                  'count': data['count'] ?? allLiJobs.length,
+                  'source': 'linkedin',
+                }
+              : null;
           _linkedInPoolSize = data['poolSize'] as int?;
           _selectedCompany = liGroups.isNotEmpty
               ? (liGroups.first['company']?.toString() ?? 'LinkedIn')
               : 'LinkedIn';
           _scrapedAt = DateTime.now().toIso8601String();
         });
-        _lastLinkedInSig = sig;
-        _lastLinkedInAt = DateTime.now();
+        if (liGroups.isNotEmpty) {
+          _lastLinkedInSig = sig;
+          _lastLinkedInAt = DateTime.now();
+        } else {
+          _lastLinkedInSig = null;
+          _lastLinkedInAt = null;
+        }
         _saveCache();
       }
     } catch (e) {
