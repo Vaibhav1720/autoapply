@@ -23,37 +23,125 @@
         'https://autoapplynow.in' + window.location.pathname + window.location.search + window.location.hash
       );
     }
+
+    // OAuth PKCE state is stored per-origin — always use apex domain.
+    if (window.location.hostname === 'www.autoapplynow.in') {
+      window.location.replace(
+        'https://autoapplynow.in' + window.location.pathname + window.location.search + window.location.hash
+      );
+    }
+
+    // Google blocks OAuth in LinkedIn/Instagram/etc. in-app browsers (403 disallowed_useragent).
+    // Skip escape when returning from Google OAuth callback.
+    (function () {
+      try {
+        if (sessionStorage.getItem('autoapply_google_oauth_result')) return;
+      } catch (e) {}
+      var ua = navigator.userAgent || '';
+      var embedded = /FBAN|FBAV|Instagram|LinkedInApp|\[LinkedInApp\]|LinkedIn\/|Twitter|GSA\/|TikTok|BytedanceWebview|Snapchat|MicroMessenger|WeChat|Slack|Discord|Blind\/|TeamBlind|teamblind/i.test(ua)
+        || (/(iPhone|iPad|iPod)/i.test(ua) && /AppleWebKit/i.test(ua) && !/Safari\//i.test(ua))
+        || (ua.indexOf('Android') >= 0 && ua.toLowerCase().indexOf('wv') >= 0);
+      if (!embedded) return;
+      var href = window.location.href;
+      if (/(iPhone|iPad|iPod)/i.test(ua)) {
+        window.location.replace('x-safari-' + href);
+      } else if (ua.indexOf('Android') >= 0) {
+        try {
+          var u = new URL(href);
+          var path = u.pathname + u.search;
+          window.location.replace(
+            'intent://' + u.host + path + '#Intent;scheme=' + u.protocol.replace(':','') + ';package=com.android.chrome;end'
+          );
+        } catch (e) {}
+      }
+    })();
+  </script>
+
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script>
+    // Returns a Google ID token (JWT) — no OAuth client secret required.
+    window.autoapplyGoogleSignInCredential = function (clientId) {
+      return new Promise(function (resolve, reject) {
+        function fail(code, message) {
+          reject(JSON.stringify({ code: code, message: message || code }));
+        }
+        function waitForGsi(tries) {
+          if (window.google && google.accounts && google.accounts.id) {
+            run();
+          } else if (tries > 50) {
+            fail('gsi_timeout', 'Google Sign-In failed to load. Refresh and try again.');
+          } else {
+            setTimeout(function () { waitForGsi(tries + 1); }, 200);
+          }
+        }
+        function run() {
+          var settled = false;
+          function finish(err, credential) {
+            if (settled) return;
+            settled = true;
+            if (err) fail(err.code, err.message);
+            else resolve(credential);
+          }
+          google.accounts.id.initialize({
+            client_id: clientId,
+            callback: function (response) {
+              if (response && response.credential) finish(null, response.credential);
+              else finish({ code: 'no_credential', message: 'No credential returned' });
+            },
+            auto_select: false,
+            cancel_on_tap_outside: true,
+          });
+          google.accounts.id.prompt(function (notification) {
+            if (settled) return;
+            if (notification.isNotDisplayed()) {
+              finish({
+                code: 'prompt_not_displayed',
+                message: notification.getNotDisplayedReason() || 'prompt_not_displayed',
+              });
+            } else if (notification.isSkippedMoment()) {
+              finish({
+                code: 'prompt_skipped',
+                message: notification.getSkippedReason() || 'prompt_skipped',
+              });
+            } else if (notification.isDismissedMoment()) {
+              finish({ code: 'cancelled', message: 'cancelled' });
+            }
+          });
+        }
+        waitForGsi(0);
+      });
+    };
   </script>
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="HirePanda — AI That Finds Jobs Meant For You. AI-powered job search across Amazon, Google, Microsoft, Uber and 40+ top companies. Upload your resume, get matched jobs, and auto-fill applications with one click.">
-  <meta name="keywords" content="job search, HirePanda, job application autofill, AI job matching, career, resume, software engineer jobs, India jobs, remote jobs">
-  <meta name="author" content="HirePanda">
+  <meta name="description" content="ApplyRight — AI That Finds Jobs Meant For You. AI-powered job search across Amazon, Google, Microsoft, Uber and 40+ top companies. Upload your resume, get matched jobs, and auto-fill applications with one click.">
+  <meta name="keywords" content="job search, ApplyRight, job application autofill, AI job matching, career, resume, software engineer jobs, India jobs, remote jobs">
+  <meta name="author" content="ApplyRight">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="https://autoapplynow.in/">
 
   <!-- Open Graph (Facebook, LinkedIn) -->
   <meta property="og:type" content="website">
-  <meta property="og:title" content="HirePanda — AI Job Search & Auto-Fill">
+  <meta property="og:title" content="ApplyRight — AI Job Search & Auto-Fill">
   <meta property="og:description" content="AI That Finds Jobs Meant For You. AI-ranked jobs from 40+ top companies. Upload your resume, get matched, auto-fill applications.">
   <meta property="og:url" content="https://autoapplynow.in/">
-  <meta property="og:site_name" content="HirePanda">
-  <meta property="og:image" content="https://autoapplynow.in/images/hirepanda_mark.png">
+  <meta property="og:site_name" content="ApplyRight">
+  <meta property="og:image" content="https://autoapplynow.in/images/applyright_mark.png">
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="HirePanda — AI Job Search & Auto-Fill">
+  <meta name="twitter:title" content="ApplyRight — AI Job Search & Auto-Fill">
   <meta name="twitter:description" content="AI That Finds Jobs Meant For You. AI-ranked jobs from top companies. One-click autofill.">
-  <meta name="twitter:image" content="https://autoapplynow.in/images/hirepanda_mark.png">
+  <meta name="twitter:image" content="https://autoapplynow.in/images/applyright_mark.png">
 
   <!-- Structured Data (JSON-LD) -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "WebApplication",
-    "name": "HirePanda",
+    "name": "ApplyRight",
     "url": "https://autoapplynow.in/",
     "description": "AI-powered job search and application autofill. Find matching jobs at Amazon, Google, Microsoft, Uber and 40+ top companies, then auto-fill applications with your resume in one click.",
     "applicationCategory": "BusinessApplication",
@@ -63,35 +151,23 @@
       "price": "0",
       "priceCurrency": "USD"
     },
-    "browserRequirements": "Requires Chrome with HirePanda extension for autofill"
+    "browserRequirements": "Requires Chrome with ApplyRight extension for autofill"
   }
   </script>
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="HirePanda">
+  <meta name="apple-mobile-web-app-title" content="ApplyRight">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
-  <!-- Favicon (HirePanda mark — replaces default Flutter icon) -->
+  <!-- Favicon (ApplyRight mark — replaces default Flutter icon) -->
   <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
   <link rel="shortcut icon" type="image/png" href="favicon.png">
 
-  <title>HirePanda — AI Job Search & Application Autofill</title>
+  <title>ApplyRight — AI Job Search & Application Autofill</title>
   <link rel="manifest" href="manifest.json">
-
-  <!-- Google Identity Services (for Sign in with Google) -->
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script>
-    // Bridge: Google credential callback. The Flutter app sets
-    // window.__autoApplyGoogleCallback before calling google.accounts.id.prompt().
-    window.handleGoogleCredentialResponse = function(resp) {
-      if (window.__autoApplyGoogleCallback) {
-        try { window.__autoApplyGoogleCallback(resp && resp.credential); } catch (e) { console.error(e); }
-      }
-    };
-  </script>
 
   <!-- Disable the Flutter service worker entirely. Service workers were
        causing users to be stuck on stale bundles for hours after every
@@ -133,10 +209,10 @@
         key: opts.key,
         amount: opts.amount,
         currency: opts.currency || 'INR',
-        name: opts.name || 'HirePanda',
+        name: opts.name || 'ApplyRight',
         description: opts.test_mode
-          ? (opts.description || 'HirePanda Pro') + ' (TEST — do not scan QR)'
-          : (opts.description || 'HirePanda Pro'),
+          ? (opts.description || 'ApplyRight Pro') + ' (TEST — do not scan QR)'
+          : (opts.description || 'ApplyRight Pro'),
         order_id: opts.order_id,
         prefill: opts.prefill || {},
         theme: opts.theme || { color: '#1E3A8A' },
@@ -167,8 +243,8 @@
 <body>
   <!-- SEO: Crawlable content (hidden when Flutter loads, visible to search engines) -->
   <noscript>
-    <h1>HirePanda — AI Job Search & Application Autofill</h1>
-    <p>HirePanda finds the best jobs for you across Amazon, Google, Microsoft, Uber, Netflix, Stripe, and 40+ top companies. AI That Finds Jobs Meant For You. Upload your resume, get AI-ranked matches, and auto-fill applications with one click using our Chrome extension.</p>
+    <h1>ApplyRight — AI Job Search & Application Autofill</h1>
+    <p>ApplyRight finds the best jobs for you across Amazon, Google, Microsoft, Uber, Netflix, Stripe, and 40+ top companies. AI That Finds Jobs Meant For You. Upload your resume, get AI-ranked matches, and auto-fill applications with one click using our Chrome extension.</p>
     <h2>How it works</h2>
     <ol>
       <li>Sign in with Google and upload your resume</li>
@@ -187,7 +263,7 @@
     <p><a href="https://chromewebstore.google.com/detail/autoapply-%E2%80%93-job-form-auto/anjgpjhdecnibcbogkclafanemofndea">Get the Chrome Extension</a></p>
   </noscript>
   <div id="seo-content" style="position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;" aria-hidden="true">
-    <h1>HirePanda — AI Job Search & Application Autofill</h1>
+    <h1>ApplyRight — AI Job Search & Application Autofill</h1>
     <p>AI That Finds Jobs Meant For You. Find jobs at Amazon, Google, Microsoft, Uber, Netflix, Stripe, Meta, Apple, Salesforce, Adobe, Goldman Sachs, JPMorgan, Barclays, Citibank, Airbnb, Anthropic, Databricks, GitLab, MongoDB, Pinterest, Reddit, Robinhood, Scale AI, and more. AI-ranked job matching for software engineers, product managers, data scientists, designers, and finance professionals in India, USA, and remote.</p>
     <p>Upload your resume. Get matched. Auto-fill applications. Free to use.</p>
   </div>

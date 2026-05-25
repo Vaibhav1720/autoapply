@@ -247,7 +247,7 @@ async function loadProfile(token) {
         if (missing.length > 0) {
           const labels = missing.slice(0, 6).map((m) => m.label || m.key).join(", ");
           const more = missing.length > 6 ? ` +${missing.length - 6} more` : "";
-          list.textContent = `Missing: ${labels}${more}. HirePanda will ask you on every form until these are saved.`;
+          list.textContent = `Missing: ${labels}${more}. ApplyRight will ask you on every form until these are saved.`;
           banner.style.display = "block";
         } else {
           banner.style.display = "none";
@@ -362,7 +362,7 @@ function sendToContent(type, callback) {
     if (_isBlockedAutofillUrl(tabUrl)) {
       callback?.({
         filled: 0,
-        error: "LinkedIn job pages can't be autofilled. Click Apply on the company site, then use HirePanda there.",
+        error: "LinkedIn job pages can't be autofilled. Click Apply on the company site, then use ApplyRight there.",
       });
       return;
     }
@@ -376,7 +376,7 @@ function sendToContent(type, callback) {
       if (!granted) {
         callback?.({
           filled: 0,
-          error: "Allow HirePanda to access this site when Chrome prompts you, then try again.",
+          error: "Allow ApplyRight to access this site when Chrome prompts you, then try again.",
         });
         return;
       }

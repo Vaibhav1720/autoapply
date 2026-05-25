@@ -49,7 +49,7 @@ Future<Map<String, String>?> openRazorpayStandardCheckout({
     'order_id': orderId,
     'amount': amountPaise,
     'currency': currency,
-    'name': 'HirePanda',
+    'name': 'ApplyRight',
     'description': description,
     'prefill': {
       'name': customerName,

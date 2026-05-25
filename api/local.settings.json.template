@@ -29,7 +29,7 @@
     "SMTP_PASSWORD": "<gmail-app-password — Google Account → Security → App passwords>",
     "SMTP_FROM": "techvibeapps.ai@gmail.com",
     "SUPPORT_EMAIL": "techvibeapps.ai@gmail.com",
-    "APP_NAME": "HirePanda",
+    "APP_NAME": "ApplyRight",
     "APP_URL": "https://autoapplynow.in",
     "EXPIRY_REMINDER_DAYS": "3",
     "EXPIRY_REMINDER_CRON": "0 0 9 * * *",

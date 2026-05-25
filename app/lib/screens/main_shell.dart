@@ -271,12 +271,12 @@ class _NavPillState extends State<_NavPill> {
   }
 }
 
-/// HirePanda circular mark + optional wordmark (no banner on page body).
+/// ApplyRight circular mark + optional wordmark (no banner on page body).
 class BrandMark extends StatelessWidget {
   final bool showWordmark;
   const BrandMark({super.key, this.showWordmark = true});
 
-  static const _markAsset = 'assets/images/hirepanda_mark.png';
+  static const _markAsset = 'assets/images/applyright_mark.png';
 
   @override
   Widget build(BuildContext context) {
@@ -299,7 +299,7 @@ class BrandMark extends StatelessWidget {
         ShaderMask(
           shaderCallback: (r) => AppTheme.brandGradient.createShader(r),
           child: const Text(
-            'HirePanda',
+            'ApplyRight',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w800,

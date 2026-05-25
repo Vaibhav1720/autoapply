@@ -35,7 +35,7 @@ SMTP_USER = lambda: os.environ.get("SMTP_USER", "techvibeapps.ai@gmail.com").str
 SMTP_PASSWORD = lambda: os.environ.get("SMTP_PASSWORD", "").strip()
 SMTP_FROM = lambda: (os.environ.get("SMTP_FROM") or SMTP_USER()).strip()
 SUPPORT_EMAIL = lambda: os.environ.get("SUPPORT_EMAIL", "techvibeapps.ai@gmail.com").strip()
-APP_NAME = lambda: os.environ.get("APP_NAME", "HirePanda").strip()
+APP_NAME = lambda: os.environ.get("APP_NAME", "ApplyRight").strip()
 APP_URL = lambda: os.environ.get("APP_URL", "https://autoapplynow.in").strip()
 
 

@@ -247,7 +247,7 @@ $("#btnSave").addEventListener("click", async () => {
 // ---- Delete account ----
 $("#btnDeleteAccount").addEventListener("click", async () => {
   const phrase = window.prompt(
-    "This will permanently delete your HirePanda account, profile, uploaded resumes, and saved answers.\n\n" +
+    "This will permanently delete your ApplyRight account, profile, uploaded resumes, and saved answers.\n\n" +
     "Type DELETE (in capitals) to confirm:"
   );
   if (phrase !== "DELETE") {

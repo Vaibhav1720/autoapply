@@ -1,15 +1,46 @@
-// Stub used on non-web platforms. The real web implementation lives in
-// `google_sign_in_helper_web.dart` and is selected via conditional import in
-// the consumers below.
+import 'google_oauth_types.dart';
 import 'google_sign_in_helper_stub.dart'
     if (dart.library.js_interop) 'google_sign_in_helper_web.dart' as impl;
 
-/// Triggers the Google Identity Services sign-in flow and returns the Google
-/// ID token (a JWT) on success. Returns null if the user cancels.
-/// Throws [UnsupportedError] on non-web platforms.
+export 'google_oauth_types.dart' show GoogleOAuthRedirectResult;
+
+Future<String> requestGoogleIdToken({required String clientId}) =>
+    impl.requestGoogleIdToken(clientId: clientId);
+
+Future<void> signInWithGoogleRedirect({required String clientId}) =>
+    impl.signInWithGoogleRedirect(clientId: clientId);
+
+/// Starts Google OAuth. On web, navigates away (returns incomplete future).
 Future<String?> signInWithGoogle({required String clientId}) =>
     impl.signInWithGoogle(clientId: clientId);
-
-/// On web, completes sign-in after a full-page Google OAuth redirect (mobile).
-Future<String?> consumeRedirectOAuthResult() =>
+Future<GoogleOAuthRedirectResult?> consumeRedirectOAuthResult() =>
     impl.consumeRedirectOAuthResult();
+
+Future<String> exchangeCodeForIdToken({
+  required String code,
+  required String redirectUri,
+  required String codeVerifier,
+  required String clientId,
+}) =>
+    impl.exchangeCodeForIdToken(
+      code: code,
+      redirectUri: redirectUri,
+      codeVerifier: codeVerifier,
+      clientId: clientId,
+    );
+
+bool isEmbeddedOAuthBrowser() => impl.isEmbeddedOAuthBrowser();
+
+String? embeddedBrowserWarning() => impl.embeddedBrowserWarning();
+
+bool tryEscapeEmbeddedBrowser() => impl.tryEscapeEmbeddedBrowser();
+
+bool hasPendingOAuthResult() => impl.hasPendingOAuthResult();
+
+String oauthErrorMessage(String error) => impl.oauthErrorMessage(error);
+
+Future<bool> copyCurrentUrlToClipboard() => impl.copyCurrentUrlToClipboard();
+
+String embeddedBrowserInstructions() => impl.embeddedBrowserInstructions();
+
+Future<bool> openInSystemBrowser() => impl.openInSystemBrowser();

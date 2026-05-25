@@ -8,6 +8,7 @@ import 'package:auto_apply/config/theme.dart';
 import 'package:auto_apply/providers/auth_provider.dart';
 import 'package:auto_apply/screens/main_shell.dart';
 import 'package:auto_apply/services/google_sign_in_helper.dart' as google;
+import 'package:auto_apply/services/google_sign_in_errors.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -19,33 +20,76 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   bool _busy = false;
 
+  bool get _embeddedBrowser => kIsWeb && google.isEmbeddedOAuthBrowser();
+
   @override
   void initState() {
     super.initState();
     if (kIsWeb) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _completeRedirectSignIn();
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await _completeRedirectSignIn();
+        if (!mounted) return;
+        google.tryEscapeEmbeddedBrowser();
       });
     }
   }
 
-  /// After mobile full-page Google OAuth, oauth2-redirect.html stores the token
+  /// After full-page Google OAuth, oauth2-redirect.html stores the auth code
   /// in sessionStorage and sends the user back here.
   Future<void> _completeRedirectSignIn() async {
     if (_busy || !kIsWeb) return;
-    final idToken = await google.consumeRedirectOAuthResult();
-    if (idToken == null || idToken.isEmpty || !mounted) return;
+    final result = await google.consumeRedirectOAuthResult();
+    if (result == null || !mounted) return;
+
+    if (result.error != null && result.error!.isNotEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(google.oauthErrorMessage(result.error!))),
+        );
+      }
+      return;
+    }
+
+    if (!result.isSuccess ||
+        (result.codeVerifier ?? '').isEmpty ||
+        (result.redirectUri ?? '').isEmpty) {
+      if (mounted && (result.code ?? '').isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Sign-in session expired. Please tap Sign in with Google again.'),
+        ));
+      }
+      return;
+    }
+
     setState(() => _busy = true);
     try {
       final auth = context.read<AuthProvider>();
       auth.clearError();
-      final ok = await auth.loginWithGoogle(idToken);
+      // Server exchanges the auth code with Google (requires GOOGLE_CLIENT_SECRET on API).
+      final ok = await auth.loginWithGoogleCode(
+        code: result.code!,
+        redirectUri: result.redirectUri!,
+        codeVerifier: result.codeVerifier!,
+      );
       if (!mounted) return;
-      if (ok) context.go('/');
+      if (ok) {
+        context.go('/');
+      } else if (auth.error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(auth.error!)),
+        );
+      }
+    } on GoogleSignInException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message)),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sign-in failed: $e')),
+          SnackBar(content: Text(formatSignInError(e))),
         );
       }
     } finally {
@@ -53,10 +97,25 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _openInSystemBrowser() async {
+    await google.openInSystemBrowser();
+  }
+
+  Future<void> _copyLink() async {
+    final ok = await google.copyCurrentUrlToClipboard();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(ok
+          ? 'Link copied — paste it in Safari or Chrome.'
+          : 'Could not copy. Type autoapplynow.in in Safari or Chrome.'),
+    ));
+  }
+
   Future<void> _signInWithGoogle() async {
     if (AzureConfig.googleClientId.startsWith('REPLACE_ME')) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Google sign-in is not configured. Set googleClientId in azure_config.dart.'),
+        content: Text(
+            'Google sign-in is not configured. Set googleClientId in azure_config.dart.'),
       ));
       return;
     }
@@ -66,22 +125,56 @@ class _LoginScreenState extends State<LoginScreen> {
       ));
       return;
     }
+    if (_embeddedBrowser) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+          google.embeddedBrowserWarning() ??
+              'Open autoapplynow.in in Safari or Chrome to sign in.',
+        ),
+        duration: const Duration(seconds: 6),
+      ));
+      return;
+    }
     setState(() => _busy = true);
     try {
-      final idToken = await google.signInWithGoogle(clientId: AzureConfig.googleClientId);
-      if (idToken == null || idToken.isEmpty) {
-        if (mounted) setState(() => _busy = false);
-        return; // user cancelled
-      }
       final auth = context.read<AuthProvider>();
       auth.clearError();
+      String idToken;
+      try {
+        idToken = await google.requestGoogleIdToken(
+          clientId: AzureConfig.googleClientId,
+        );
+      } on GoogleSignInException catch (e) {
+        if (e.message == 'redirect_started') return;
+        if (e.message == 'prompt_not_displayed') {
+          await google.signInWithGoogleRedirect(
+            clientId: AzureConfig.googleClientId,
+          );
+          return;
+        }
+        if (e.message == 'Sign-in was cancelled.') return;
+        rethrow;
+      }
       final ok = await auth.loginWithGoogle(idToken);
-      if (ok && mounted) {
+      if (!mounted) return;
+      if (ok) {
         context.go('/');
+      } else if (auth.error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(auth.error!)),
+        );
+      }
+    } on GoogleSignInException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message)),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sign-in failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(formatSignInError(e))),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -138,6 +231,49 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 36),
 
+                      if (_embeddedBrowser) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppTheme.error.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                                color: AppTheme.error.withValues(alpha: 0.3)),
+                          ),
+                          child: Text(
+                            google.embeddedBrowserWarning() ??
+                                google.embeddedBrowserInstructions(),
+                            style: const TextStyle(
+                              color: AppTheme.error,
+                              fontSize: 13,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: OutlinedButton.icon(
+                            onPressed: _openInSystemBrowser,
+                            icon: const Icon(Icons.open_in_browser),
+                            label: const Text('Open in Safari / Chrome'),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: OutlinedButton.icon(
+                            onPressed: _copyLink,
+                            icon: const Icon(Icons.link),
+                            label: const Text('Copy link'),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+
                       Consumer<AuthProvider>(builder: (_, auth, __) {
                         if (auth.error != null) {
                           return Padding(
@@ -151,7 +287,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       }),
 
                       Consumer<AuthProvider>(builder: (_, auth, __) {
-                        final disabled = _busy || auth.loading;
+                        final disabled = _busy || auth.loading || _embeddedBrowser;
                         return SizedBox(
                           width: double.infinity,
                           height: 52,
@@ -159,14 +295,17 @@ class _LoginScreenState extends State<LoginScreen> {
                             onPressed: disabled ? null : _signInWithGoogle,
                             icon: disabled
                                 ? const SizedBox(
-                                    width: 20, height: 20,
+                                    width: 20,
+                                    height: 20,
                                     child: CircularProgressIndicator(
                                         strokeWidth: 2),
                                   )
                                 : const Icon(Icons.login,
                                     color: Colors.redAccent),
                             label: Text(
-                              disabled ? 'Signing in…' : 'Sign in with Google',
+                              disabled && (_busy || auth.loading)
+                                  ? 'Signing in…'
+                                  : 'Sign in with Google',
                               style: const TextStyle(fontSize: 15),
                             ),
                             style: OutlinedButton.styleFrom(
@@ -203,7 +342,9 @@ class _LegalFooter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = TextStyle(
-        fontSize: 11, color: Colors.grey.shade500, decoration: TextDecoration.underline);
+        fontSize: 11,
+        color: Colors.grey.shade500,
+        decoration: TextDecoration.underline);
     return Wrap(
       alignment: WrapAlignment.center,
       spacing: 12,

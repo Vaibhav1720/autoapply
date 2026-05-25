@@ -114,7 +114,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FB),
       appBar: AppBar(
-        title: const Text('HirePanda — Admin'),
+        title: const Text('ApplyRight — Admin'),
         actions: [
           DropdownButton<int>(
             value: _days,

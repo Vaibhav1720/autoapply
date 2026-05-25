@@ -358,7 +358,7 @@ class _PlanCard extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Text(
-                isPro ? 'HirePanda Pro' : 'Free plan',
+                isPro ? 'ApplyRight Pro' : 'Free plan',
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 26,

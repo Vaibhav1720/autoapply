@@ -4,18 +4,47 @@
 <p style="font-family:system-ui,sans-serif;text-align:center;margin-top:40vh;color:#555">Signing you in…</p>
 <script>
   (function () {
-    var hash = window.location.hash || '';
-    var params = {};
-    hash.replace(/^#/, '').split('&').forEach(function (p) {
-      var i = p.indexOf('=');
-      if (i < 0) return;
-      try {
-        params[decodeURIComponent(p.slice(0, i))] = decodeURIComponent(p.slice(i + 1));
-      } catch (e) {}
-    });
+    // Always use apex domain so PKCE storage matches the login origin.
+    if (window.location.hostname === 'www.autoapplynow.in') {
+      window.location.replace(
+        'https://autoapplynow.in' + window.location.pathname + window.location.search + window.location.hash
+      );
+      return;
+    }
 
-    // Desktop popup flow — postMessage back to opener.
-    if (window.opener && !window.opener.closed) {
+    var PENDING_KEY = 'autoapply_google_oauth_pending';
+    var RESULT_KEY = 'autoapply_google_oauth_result';
+
+    function canonicalRedirectUri() {
+      var host = window.location.hostname.replace(/^www\./, '');
+      return 'https://' + host + '/oauth2-redirect.html';
+    }
+
+    function readPending() {
+      try {
+        var raw = sessionStorage.getItem(PENDING_KEY) || localStorage.getItem(PENDING_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function clearPending() {
+      try {
+        sessionStorage.removeItem(PENDING_KEY);
+        localStorage.removeItem(PENDING_KEY);
+      } catch (e) {}
+    }
+
+    var search = window.location.search || '';
+    var params = new URLSearchParams(search);
+    var code = params.get('code') || '';
+    var state = params.get('state') || '';
+    var error = params.get('error') || params.get('error_description') || '';
+
+    // Legacy popup + implicit flow (hash) — keep for old desktop sessions.
+    var hash = window.location.hash || '';
+    if (window.opener && !window.opener.closed && hash) {
       try {
         window.opener.postMessage({ source: 'autoapply-google-oauth', hash: hash }, window.location.origin);
         window.close();
@@ -23,25 +52,29 @@
       } catch (e) {}
     }
 
-    // Full-page redirect flow (mobile / in-app browsers).
-    var pending = null;
-    try {
-      pending = JSON.parse(sessionStorage.getItem('autoapply_google_oauth_pending') || 'null');
-    } catch (e) {}
-
+    var pending = readPending();
     var payload;
-    if (params.error) {
-      payload = { error: params.error };
-    } else if (pending && params.state && pending.state !== params.state) {
-      payload = { error: 'state_mismatch' };
+
+    if (error) {
+      payload = { error: error };
+    } else if (code) {
+      var redirectUri = (pending && pending.redirectUri) ? pending.redirectUri : canonicalRedirectUri();
+      var codeVerifier = (pending && pending.codeVerifier) ? pending.codeVerifier : '';
+      if (!codeVerifier) {
+        payload = { error: 'session_lost' };
+      } else {
+        payload = { code: code, state: state, redirectUri: redirectUri, codeVerifier: codeVerifier };
+      }
+    } else if (hash) {
+      payload = { hash: hash };
     } else {
-      payload = { id_token: params.id_token || '', state: params.state || '' };
+      payload = { error: 'missing_code' };
     }
 
     try {
-      sessionStorage.setItem('autoapply_google_oauth_result', JSON.stringify(payload));
-      sessionStorage.removeItem('autoapply_google_oauth_pending');
+      sessionStorage.setItem(RESULT_KEY, JSON.stringify(payload));
     } catch (e) {}
+    clearPending();
 
     window.location.replace(window.location.origin + '/login');
   })();

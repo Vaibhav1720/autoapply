@@ -7,7 +7,7 @@ import 'package:auto_apply/utils/pricing_copy.dart';
 import 'package:auto_apply/providers/profile_provider.dart';
 import 'package:auto_apply/services/api_service.dart';
 
-/// Companies tab — pick which employers HirePanda scans for matching roles.
+/// Companies tab — pick which employers ApplyRight scans for matching roles.
 ///
 /// Selections auto-save (debounced) so users never need to remember to press
 /// a button. UI mirrors the Discover screen's hero + search aesthetic.
@@ -287,7 +287,7 @@ class _CompaniesScreenState extends State<CompaniesScreen> {
     if (_savedAt != null) return 'All changes saved';
     final max = _maxSelected;
     return _selected.isEmpty
-        ? 'Pick the employers you want HirePanda to scan (up to $max)'
+        ? 'Pick the employers you want ApplyRight to scan (up to $max)'
         : '${_selected.length} of $max selected';
   }
 

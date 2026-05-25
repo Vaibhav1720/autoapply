@@ -33,6 +33,7 @@ ALLOW_DEV_USER_HEADER = os.environ.get("ALLOW_DEV_USER_HEADER", "").lower() in (
 GOOGLE_CLIENT_IDS = [
     s.strip() for s in os.environ.get("GOOGLE_CLIENT_IDS", "").split(",") if s.strip()
 ]
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
 
 
 def _create_jwt(user_id: str, email: str) -> str:
@@ -146,6 +147,73 @@ def login_with_google(id_token_str: str) -> dict:
 
     token = _create_jwt(user_id, email)
     return {"userId": user_id, "token": token, "email": email, "name": display_name}
+
+
+def exchange_google_auth_code(code: str, redirect_uri: str, code_verifier: str) -> dict:
+    """Exchange an OAuth authorization code (PKCE) for a Google ID token, then sign in."""
+    import requests
+
+    code = (code or "").strip()
+    redirect_uri = (redirect_uri or "").strip()
+    code_verifier = (code_verifier or "").strip()
+    if not code or not redirect_uri or not code_verifier:
+        raise ValidationError("code, redirectUri, and codeVerifier are required")
+    if not GOOGLE_CLIENT_IDS:
+        raise ValidationError("Google sign-in is not configured on the server")
+
+    if not GOOGLE_CLIENT_SECRET:
+        raise AuthenticationError(
+            "Google sign-in is not fully configured on the server. "
+            "Add GOOGLE_CLIENT_SECRET in the Function App settings "
+            "(Google Cloud Console → Credentials → your Web client → Client secret)."
+        )
+
+    client_id = GOOGLE_CLIENT_IDS[0]
+    token_data = {
+        "code": code,
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+        "code_verifier": code_verifier,
+    }
+    token_data["client_secret"] = GOOGLE_CLIENT_SECRET
+    try:
+        resp = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data=token_data,
+            timeout=15,
+        )
+    except Exception as e:
+        logger.warning("Google token exchange request failed: %s", e)
+        raise AuthenticationError("Google sign-in failed. Try Safari or Chrome.") from e
+
+    if resp.status_code != 200:
+        err_body = {}
+        try:
+            err_body = resp.json() if resp.text else {}
+        except Exception:
+            pass
+        err_desc = (err_body.get("error_description") or err_body.get("error") or "").strip()
+        logger.warning(
+            "Google token exchange HTTP %s: %s",
+            resp.status_code,
+            (resp.text or "")[:300],
+        )
+        if "client_secret is missing" in err_desc:
+            raise AuthenticationError(
+                "Google sign-in is not configured on the server (missing client secret)."
+            )
+        if err_desc:
+            raise AuthenticationError(f"Google sign-in failed: {err_desc}")
+        raise AuthenticationError(
+            "Google sign-in failed. Open autoapplynow.in in Safari or Chrome and retry."
+        )
+
+    tokens = resp.json() if resp.text else {}
+    id_token = tokens.get("id_token")
+    if not id_token:
+        raise AuthenticationError("Google did not return an ID token")
+    return login_with_google(id_token_str=id_token)
 
 
 def get_user_id(req) -> str:

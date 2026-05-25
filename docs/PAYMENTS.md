@@ -108,8 +108,7 @@ Set on the Function App (`az functionapp config appsettings set …`) **and** in
 3. **Create a Product**:
    - Type: **Subscription**
    - Add **two variants**:
-     - "Pro Monthly" — $9.99 / month
-     - "Pro Yearly" — $89.99 / year
+     - "Pro Weekly" — $0.99 / week
    - On each variant page, copy the numeric **Variant ID** from the URL (`/variants/<id>/edit`).
 4. **Create an API key**: Settings → API → "Create API key". Copy once — it cannot be re-shown.
 5. **Create a Webhook**:
@@ -174,12 +173,10 @@ Docs: <https://razorpay.com/docs/api/payments/subscriptions/>, <https://razorpay
 
 ### 3.2 Pricing parity
 
-| Plan | USD (LS) | INR (Razorpay) | Razorpay plan_id env var |
+| Plan | USD (Lemon Squeezy) | INR (Razorpay) | Env |
 |---|---|---|---|
-| Pro Monthly | $9.99 | ₹799 | `RAZORPAY_PLAN_PRO_MONTHLY` |
-| Pro Yearly | $89.99 | ₹6 999 | `RAZORPAY_PLAN_PRO_YEARLY` |
-
-(Adjust the INR values to your final pricing — they are illustrative.)
+| Pro Weekly | $0.99 | — | `LEMONSQUEEZY_VARIANT_PRO_WEEKLY`, `LEMONSQUEEZY_CHECKOUT_PRO_WEEKLY` |
+| Pro Monthly | — | ₹199 | `RAZORPAY_PLAN_PRO_MONTHLY` |
 
 ### 3.3 Files to create
 

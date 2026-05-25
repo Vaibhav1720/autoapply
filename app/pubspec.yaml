@@ -45,6 +45,7 @@ dependencies:
   intl: ^0.20.2
   flutter_secure_storage: ^9.2.2
   url_launcher: ^6.2.5
+  crypto: ^3.0.6
 
 dev_dependencies:
   flutter_test:
@@ -69,8 +70,8 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/images/hirepanda_mark.png
-    - assets/images/hirepanda_logo.png
+    - assets/images/applyright_mark.png
+    - assets/images/applyright_logo.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
+import 'package:dio/dio.dart';
 import 'package:auto_apply/services/auth_service.dart';
 import 'package:auto_apply/services/api_service.dart';
+import 'package:auto_apply/services/google_sign_in_errors.dart';
 
 /// Auth state — signup, login, logout with JWT.
 class AuthProvider extends ChangeNotifier {
@@ -126,14 +128,65 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
-      final msg = e.toString();
-      _error = (msg.contains('connection') || msg.contains('network') || msg.contains('XMLHttp'))
-          ? 'Network error. Please check your connection.'
-          : 'Google sign-in failed. Please try again.';
+      _error = _googleAuthErrorMessage(e);
       _loading = false;
       notifyListeners();
       return false;
     }
+  }
+
+  Future<bool> loginWithGoogleCode({
+    required String code,
+    required String redirectUri,
+    required String codeVerifier,
+  }) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final result = await _authService.loginWithGoogleCode(
+        code: code,
+        redirectUri: redirectUri,
+        codeVerifier: codeVerifier,
+      );
+      _userId = result['userId'];
+      _token = result['token'];
+      _email = result['email'];
+      _name = result['name'];
+      _isLoggedIn = true;
+      _apiService.setToken(_token);
+      _loading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = _googleAuthErrorMessage(e);
+      _loading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  String _googleAuthErrorMessage(Object e) {
+    if (e is DioException) {
+      final data = e.response?.data;
+      if (data is Map) {
+        final err = data['error'];
+        if (err is Map && err['message'] is String) {
+          return err['message'] as String;
+        }
+      }
+      if (e.type == DioExceptionType.connectionError ||
+          e.type == DioExceptionType.connectionTimeout) {
+        return 'Network error. Please check your connection.';
+      }
+    }
+    final msg = formatSignInError(e);
+    if (msg.contains('connection') || msg.contains('network') || msg.contains('XMLHttp')) {
+      return 'Network error. Please check your connection.';
+    }
+    return msg.contains('Google sign-in failed')
+        ? msg
+        : 'Google sign-in failed. Please try again.';
   }
 
   void logout() {

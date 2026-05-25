@@ -2,7 +2,7 @@
 class AppConstants {
   AppConstants._();
 
-  static const String appName = 'HirePanda';
+  static const String appName = 'ApplyRight';
   static const String tagline = 'AI That Finds Jobs Meant For You.';
   static const String appVersion = '0.1.0';
 

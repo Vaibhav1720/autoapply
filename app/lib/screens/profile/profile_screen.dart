@@ -209,7 +209,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: const Text('Delete account?'),
         content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text(
-            'This will permanently delete your HirePanda account, profile, '
+            'This will permanently delete your ApplyRight account, profile, '
             'uploaded resumes, and saved answers. This cannot be undone.',
           ),
           const SizedBox(height: 12),

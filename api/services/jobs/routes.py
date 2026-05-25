@@ -522,6 +522,8 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
 
         body = req.get_json() if req.get_body() else {}
         query = body.get("query", "")
+        body_queries = [str(q).strip() for q in (body.get("queries") or []) if str(q).strip()]
+        body_locations = [str(l).strip() for l in (body.get("locations") or []) if str(l).strip()]
         # Pivot mode: user is intentionally searching off-resume (career
         # change). When set, we skip resume-title query expansion so the
         # pool isn't polluted with the user's old discipline.
@@ -574,15 +576,21 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
             try:
                 prefs = profile.get("preferences") or {}
                 locations = prefs.get("locations", []) or []
+                if body_locations:
+                    locations = body_locations
                 location_queries = [l.strip() for l in locations
                                     if l and l.strip().lower() not in ("remote", "anywhere")]
+                location_queries = _expand_country_to_cities(location_queries)
                 if not location_queries:
                     location_queries = [""]
                 location_queries = location_queries[:3]
                 keywords = prefs.get("keywords", [])
 
                 search_queries = []
-                if query:
+                for q in body_queries:
+                    if q not in search_queries:
+                        search_queries.append(q)
+                if query and query not in search_queries:
                     search_queries.append(query)
                 if keywords:
                     for kw in keywords[:3]:
@@ -596,7 +604,7 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
                         search_queries.append("software engineer")
                 _maybe_add_eng_fallbacks(
                     search_queries, industry=(prefs.get("industry") or ""))
-                pivot_mode = _level_qualify_queries(search_queries, profile, pivot=pivot_mode)
+                pivot = _level_qualify_queries(search_queries, profile, pivot=pivot_mode)
 
                 raw_jobs = []
                 seen_ids = set()
@@ -612,9 +620,12 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
                         except Exception:
                             pass
 
+                if locations:
+                    raw_jobs = _filter_jobs_by_location(raw_jobs, locations, f"[BULK][{cid}]")
+
                 matched = match_jobs_to_profile(
                     raw_jobs, profile,
-                    search_queries=search_queries, pivot=pivot_mode,
+                    search_queries=search_queries, pivot=pivot,
                 )
                 # ── Per-company minimum-yield floor ──
                 # Goal: a user who deliberately selected this company should
@@ -900,8 +911,8 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
                 user_id=user_id,
                 email=profile.get("email", ""),
                 run_type="bulk",
-                queries=prefs.get("keywords", [])[:5],
-                locations=prefs.get("locations", [])[:5],
+                queries=(body_queries or ([query] if query else []) or (prefs.get("keywords") or [])[:5]),
+                locations=(body_locations or prefs.get("locations", [])[:5]),
                 duration_ms=int((time.time() - bulk_started_at) * 1000),
                 companies=_run_companies,
             )

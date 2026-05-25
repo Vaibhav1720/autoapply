@@ -686,7 +686,7 @@
 
     // Label
     const label = document.createElement("span");
-    label.textContent = "HirePanda";
+    label.textContent = "ApplyRight";
     label.style.fontWeight = "600";
     label.style.fontSize = "13px";
     label.style.transition = "opacity 0.2s, width 0.3s, margin 0.3s";
@@ -806,7 +806,7 @@
       label.textContent = "Filling…";
       doSmartFill().then((result) => {
         btn.style.opacity = "1";
-        label.textContent = "HirePanda";
+        label.textContent = "ApplyRight";
         if (result.filled > 0) {
           showToast(`Filled ${result.filled} fields${result.aiCount ? ` (${result.aiCount} via AI)` : ""}. Review and submit!`, true);
         } else if (result.error) {
@@ -817,7 +817,7 @@
         resetAutoCollapse();
       }).catch(() => {
         btn.style.opacity = "1";
-        label.textContent = "HirePanda";
+        label.textContent = "ApplyRight";
       });
     });
 
@@ -980,7 +980,7 @@
       <div style="font-weight:700;font-size:15px;margin-bottom:6px">🚀 Upgrade to Premium</div>
       <div style="margin-bottom:10px">${escapeHtml(message)}</div>
       <div style="display:flex;gap:8px">
-        <button id="__aa_upgrade_btn" style="flex:1;padding:8px 14px;background:#fff;color:#6366f1;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer">₹99/month →</button>
+        <button id="__aa_upgrade_btn" style="flex:1;padding:8px 14px;background:#fff;color:#6366f1;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer">₹199/month →</button>
         <button id="__aa_dismiss_btn" style="padding:8px 10px;background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:8px;font-size:12px;cursor:pointer">Later</button>
       </div>
     `;

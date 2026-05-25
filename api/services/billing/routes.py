@@ -16,8 +16,8 @@ Exposes:
   - POST /api/v1/billing/razorpay/webhook   (alias → webhooks/razorpay)
 
 Country routing:
-  country == "IN"  →  Razorpay (INR, ₹199/mo, ₹1799/yr)
-  everything else  →  Lemon Squeezy (USD, $9.99/mo, $89.99/yr)
+  country == "IN"  →  Razorpay (INR, ₹199/mo)
+  everything else  →  Lemon Squeezy (USD, $0.99/wk)
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ _FREE_PLAN: dict = {
     "priceUsd": 0,
     "priceInr": 0,
     "interval": "—",
-    "tagline": "Try HirePanda with limited daily quotas",
+    "tagline": "Try ApplyRight with limited daily quotas",
     "features": [
         "2 Discover searches / day",
         "2 LinkedIn searches / day",
@@ -77,14 +77,20 @@ _FREE_PLAN: dict = {
     "ctaLabel": "Current plan",
 }
 
-# International (USD) — Lemon Squeezy (subscription variants only)
+# Hosted Lemon checkout (weekly Pro) — override via env if the buy link changes.
+LS_CHECKOUT_PRO_WEEKLY = os.environ.get(
+    "LEMONSQUEEZY_CHECKOUT_PRO_WEEKLY",
+    "https://autoapplypayment.lemonsqueezy.com/checkout/buy/31d6a9da-598d-4372-ae7f-3c58d360b61d",
+).strip()
+
+# International (USD) — Lemon Squeezy weekly only
 PLANS_USD: list[dict] = [
     _FREE_PLAN,
     {
         "id": "pro_weekly",
         "name": "Pro Weekly",
         "tier": "pro",
-        "priceUsd": 3.49,
+        "priceUsd": 0.99,
         "interval": "week",
         "tagline": "Full Pro access, billed every week",
         "features": [
@@ -96,51 +102,15 @@ PLANS_USD: list[dict] = [
             "Priority support",
             "Cancel anytime",
         ],
-        "ctaLabel": "Upgrade — $3.49/wk",
+        "ctaLabel": "Upgrade — $0.99/wk",
         "paymentProvider": "lemonsqueezy",
         "lsVariantEnv": "LEMONSQUEEZY_VARIANT_PRO_WEEKLY",
-    },
-    {
-        "id": "pro_monthly",
-        "name": "Pro Monthly",
-        "tier": "pro",
-        "priceUsd": 9.99,
-        "interval": "month",
-        "tagline": "Unlimited everything, billed monthly",
-        "features": [
-            "Unlimited Discover searches",
-            "Unlimited LinkedIn searches",
-            "Unlimited AI autofill",
-            "Track up to 50 companies",
-            "Advanced AI resume tailoring",
-            "Priority support",
-            "Cancel anytime",
-        ],
-        "ctaLabel": "Upgrade — $9.99/mo",
-        "paymentProvider": "lemonsqueezy",
-        "lsVariantEnv": "LEMONSQUEEZY_VARIANT_PRO_MONTHLY",
-    },
-    {
-        "id": "pro_yearly",
-        "name": "Pro Yearly",
-        "tier": "pro",
-        "priceUsd": 89.99,
-        "interval": "year",
-        "tagline": "Save 25% — best value",
-        "features": [
-            "Everything in Pro Monthly",
-            "Save $30 vs monthly billing",
-            "Best for active job seekers",
-            "Cancel anytime, refund pro-rated",
-        ],
-        "ctaLabel": "Upgrade — $89.99/yr",
-        "paymentProvider": "lemonsqueezy",
-        "lsVariantEnv": "LEMONSQUEEZY_VARIANT_PRO_YEARLY",
+        "checkoutUrl": LS_CHECKOUT_PRO_WEEKLY,
         "highlight": True,
     },
 ]
 
-# India (INR) — Razorpay
+# India (INR) — Razorpay monthly only
 PLANS_INR: list[dict] = [
     _FREE_PLAN,
     {
@@ -163,24 +133,6 @@ PLANS_INR: list[dict] = [
         "ctaLabel": "Upgrade — \u20b9199/mo",
         "paymentProvider": "razorpay",
         "rzpPlanEnv": "RAZORPAY_PLAN_PRO_MONTHLY",
-    },
-    {
-        "id": "pro_yearly",
-        "name": "Pro Yearly",
-        "tier": "pro",
-        "priceInr": 1799,
-        "amountPaise": 179900,
-        "interval": "year",
-        "tagline": "Save 25% — best value",
-        "features": [
-            "Everything in Pro Monthly",
-            "Save \u20b9589 vs monthly billing",
-            "Best for active job seekers",
-            "Cancel anytime, refund pro-rated",
-        ],
-        "ctaLabel": "Upgrade — \u20b91,799/yr",
-        "paymentProvider": "razorpay",
-        "rzpPlanEnv": "RAZORPAY_PLAN_PRO_YEARLY",
         "highlight": True,
     },
 ]
@@ -253,8 +205,11 @@ def _now_iso() -> str:
 def _renews_at_iso(interval: str, from_dt: datetime | None = None) -> str:
     """Next renewal/end timestamp for Razorpay (no recurring webhook metadata)."""
     base = from_dt or datetime.now(timezone.utc)
-    if (interval or "").lower() == "year":
+    iv = (interval or "").lower()
+    if iv == "year":
         return (base + timedelta(days=365)).isoformat()
+    if iv == "week":
+        return (base + timedelta(days=7)).isoformat()
     return (base + timedelta(days=30)).isoformat()
 
 
@@ -467,7 +422,12 @@ def list_plans(req: func.HttpRequest) -> func.HttpResponse:
     India → INR / Razorpay   |   Everything else → USD / Lemon Squeezy
     """
     try:
-        country = _resolve_country(req)
+        # Explicit ?country= wins for the catalogue (Flutter sends profile country).
+        param_country = (req.params.get("country") or "").strip().upper()
+        if param_country:
+            country = _normalise_country(param_country)
+        else:
+            country = _resolve_country(req)
         is_india = _is_india_country(country)
 
         # Diagnostic logging: surface IP vs profile mismatch for debugging
@@ -496,7 +456,7 @@ def create_checkout(req: func.HttpRequest) -> func.HttpResponse:
     """Create a hosted Lemon Squeezy checkout (international / non-India only).
 
     Body:
-      { "planId": "pro_weekly" | "pro_monthly" | "pro_yearly" }
+      { "planId": "pro_weekly" }
 
     Lemon Squeezy checkout is subscription-only (auto-renews each period).
 
@@ -578,7 +538,7 @@ def razorpay_checkout(req: func.HttpRequest) -> func.HttpResponse:
 
     Body:
       {
-        "planId":      "pro_monthly" | "pro_yearly",
+        "planId":      "pro_monthly",
         "paymentType": "one_time" | "recurring"   (default: "recurring")
       }
 

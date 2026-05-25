@@ -19,6 +19,7 @@ import 'package:auto_apply/providers/auth_provider.dart';
 import 'package:auto_apply/providers/profile_provider.dart';
 import 'package:auto_apply/services/api_service.dart';
 import 'package:auto_apply/utils/razorpay_checkout_web.dart';
+import 'package:auto_apply/utils/pricing_copy.dart';
 import 'package:auto_apply/utils/subscription_access.dart';
 
 class PricingScreen extends StatefulWidget {
@@ -63,9 +64,13 @@ class _PricingScreenState extends State<PricingScreen> {
         await context.read<ProfileProvider>().loadProfile();
       } catch (_) {}
       final country = _userCountry;
+      final planParams = <String, String>{
+        '_': DateTime.now().millisecondsSinceEpoch.toString(),
+      };
+      if (country.isNotEmpty) planParams['country'] = country;
       final plansResp = await api.get(
         '/api/v1/billing/plans',
-        queryParameters: country.isNotEmpty ? {'country': country} : null,
+        queryParameters: planParams,
       );
       final plans = (plansResp.data?['plans'] as List?) ?? const [];
       final currency = (plansResp.data?['currency'] as String?) ?? 'USD';
@@ -75,10 +80,14 @@ class _PricingScreenState extends State<PricingScreen> {
         if (subResp.data is Map) sub = Map<String, dynamic>.from(subResp.data);
       } catch (_) {/* not signed in or no profile yet */}
       if (!mounted) return;
+      final isIndia = currency == 'INR' || isIndiaCountry(country);
       setState(() {
-        _plans = plans.cast<Map<String, dynamic>>();
+        _plans = filterActiveBillingPlans(
+          plans.cast<Map<String, dynamic>>(),
+          isIndia: isIndia,
+        );
         _sub = sub;
-        _isIndia = currency == 'INR';
+        _isIndia = isIndia;
         _loading = false;
       });
     } catch (e) {
@@ -213,14 +222,14 @@ class _PricingScreenState extends State<PricingScreen> {
     final name = '${personal['firstName'] ?? ''} ${personal['lastName'] ?? ''}'
         .trim();
     final email = (pp.profile?['email'] ?? auth.email ?? '').toString().trim();
-    final displayName = name.isNotEmpty ? name : (auth.name ?? 'HirePanda User');
+    final displayName = name.isNotEmpty ? name : (auth.name ?? 'ApplyRight User');
 
     final payment = await openRazorpayStandardCheckout(
       keyId: keyId,
       orderId: orderId,
       amountPaise: amount,
       currency: currency,
-      description: 'HirePanda ${plan['name'] ?? 'Pro'}',
+      description: 'ApplyRight ${plan['name'] ?? 'Pro'}',
       customerName: displayName,
       customerEmail: email.isNotEmpty ? email : 'user@example.com',
       testMode: testMode,
@@ -261,7 +270,7 @@ class _PricingScreenState extends State<PricingScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Payment successful — HirePanda Pro is now active!'),
+          content: Text('Payment successful — ApplyRight Pro is now active!'),
           backgroundColor: AppTheme.success,
           duration: Duration(seconds: 4),
         ),
@@ -425,7 +434,7 @@ class _Header extends StatelessWidget {
           cancelled
               ? 'Your Pro plan was cancelled'
               : isPro
-                  ? 'You\'re on HirePanda Pro \ud83c\udf89'
+                  ? 'You\'re on ApplyRight Pro \ud83c\udf89'
                   : 'Find your next job, faster',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(

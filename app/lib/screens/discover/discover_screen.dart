@@ -55,6 +55,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   bool _loading = false;
   bool _loadingCached = true;
   bool _cancelled = false;
+  /// Bumped on stop/new search so late HTTP responses are ignored even if
+  /// the browser does not abort the underlying request immediately.
+  int _searchGeneration = 0;
+  int _linkedInGeneration = 0;
   // CancelToken shared by every in-flight HTTP request belonging to the
   // CURRENT search. Replaced on each new _discover() run, and `.cancel()`ed
   // on _stopSearch() / dispose() / browser unload so requests are killed
@@ -479,6 +483,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   void _stopLinkedInSearch() {
+    _linkedInGeneration++;
     try {
       _linkedInCancelToken?.cancel('user-stopped');
     } catch (_) {}
@@ -493,6 +498,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   void _stopSearch() {
+    _searchGeneration++;
     // Kill any in-flight HTTP requests immediately so the backend stops
     // doing work we're about to discard. Wrapped in try/catch because
     // calling .cancel() twice on the same token throws.
@@ -500,10 +506,15 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       _searchCancelToken?.cancel('user-stopped');
     } catch (_) {}
     _searchCancelToken = null;
+    if (!mounted) return;
     setState(() {
       _cancelled = true;
       _loading = false;
     });
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
+      content: Text('Search cancelled.'),
+      duration: Duration(seconds: 2),
+    ));
   }
 
   Future<void> _discover({bool force = false}) async {
@@ -617,6 +628,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       _searchCancelToken?.cancel('superseded');
     } catch (_) {}
     _searchCancelToken = CancelToken();
+    final searchGeneration = ++_searchGeneration;
     setState(() {
       _grouped = [];
       _totalFound = 0;
@@ -715,6 +727,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         sendTimeout: const Duration(minutes: 1),
       ));
 
+      if (!mounted ||
+          _cancelled ||
+          searchGeneration != _searchGeneration) {
+        return;
+      }
+
       dynamic raw = resp.data;
       if (raw is String) {
         try { raw = jsonDecode(raw); } catch (_) {}
@@ -760,6 +778,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       _lastSearchAt = DateTime.now();
       _saveCache();
     } catch (e) {
+      if (e is DioException && CancelToken.isCancel(e)) {
+        debugPrint('[discover] bulk cancelled');
+        return;
+      }
+      if (_cancelled) return;
       final msg = _describeApiError(e, fallback: 'Could not load jobs. Please try again.');
       debugPrint('[discover] error: $msg | raw=$e');
       if (_is429(e) && mounted) {
@@ -768,7 +791,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         setState(() => _error = msg);
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && searchGeneration == _searchGeneration) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -1025,6 +1050,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       _linkedInCancelToken?.cancel('superseded');
     } catch (_) {}
     _linkedInCancelToken = CancelToken();
+    final linkedInGeneration = ++_linkedInGeneration;
 
     setState(() {
       _linkedInLoading = true;
@@ -1048,6 +1074,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         receiveTimeout: const Duration(minutes: 5),
         sendTimeout: const Duration(minutes: 1),
       ));
+      if (!mounted || linkedInGeneration != _linkedInGeneration) {
+        return;
+      }
       // Robust parse: handle Map<dynamic,dynamic> and JSON-string responses
       dynamic raw = resp.data;
       if (raw is String) {
@@ -1118,6 +1147,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         _saveCache();
       }
     } catch (e) {
+      if (e is DioException && CancelToken.isCancel(e)) {
+        debugPrint('[linkedin] cancelled');
+        return;
+      }
       final msg = _describeApiError(e, fallback: 'Failed to fetch LinkedIn jobs.');
       debugPrint('[linkedin] error: $msg | raw=$e');
       if (_is429(e) && mounted) {
@@ -1126,7 +1159,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         setState(() => _linkedInError = msg);
       }
     }
-    if (mounted) setState(() => _linkedInLoading = false);
+    if (mounted && linkedInGeneration == _linkedInGeneration) {
+      setState(() => _linkedInLoading = false);
+    }
   }
 
   // ── Upgrade / rate-limit helpers ──────────────────────────────────────
@@ -1221,8 +1256,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     const SizedBox(height: 6),
                     Text(
                       isIndia
-                          ? 'Save 25% with the yearly plan (\u20b91,799)'
-                          : 'Save 25% with the yearly plan (\$89.99)',
+                          ? 'Billed monthly via Razorpay \u2014 cancel anytime'
+                          : 'Billed weekly via Lemon Squeezy \u2014 cancel anytime',
                       style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF4b5563)),
                     ),
                   ],
@@ -3593,52 +3628,54 @@ class _SearchProgressOverlayState extends State<_SearchProgressOverlay>
     return Positioned.fill(
       child: FadeTransition(
         opacity: curve,
-        child: AbsorbPointer(
-          child: Stack(
-            children: [
-              // Fully opaque on mobile — no hero/tagline bleed-through.
-              ColoredBox(
-                color: isCompact
-                    ? const Color(0xFFF5F7FB)
-                    : const Color(0xFF1e1b4b).withValues(alpha: 0.88),
+        child: Stack(
+          children: [
+            // Block taps on the scrim only — the progress card (Stop) must stay clickable.
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: isCompact
+                      ? const Color(0xFFF5F7FB)
+                      : const Color(0xFF1e1b4b).withValues(alpha: 0.88),
+                ),
               ),
-              SafeArea(
-                child: Align(
-                  alignment: isCompact ? Alignment.topCenter : Alignment.center,
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(
-                      16,
-                      isCompact ? 12 : 24,
-                      16,
-                      isCompact ? 16 : 24,
-                    ),
-                    child: FadeTransition(
-                      opacity: curve,
-                      child: ScaleTransition(
-                        scale: Tween<double>(begin: 0.94, end: 1.0).animate(curve),
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: 580,
-                            maxHeight: isCompact
-                                ? MediaQuery.sizeOf(context).height * 0.88
-                                : double.infinity,
-                          ),
-                          child: Material(
-                            color: Colors.white,
-                            elevation: isCompact ? 8 : 12,
-                            shadowColor: Colors.black26,
-                            borderRadius: BorderRadius.circular(20),
-                            clipBehavior: Clip.antiAlias,
-                            child: widget.child,
-                          ),
+            ),
+            SafeArea(
+              child: Align(
+                alignment: isCompact ? Alignment.topCenter : Alignment.center,
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    isCompact ? 12 : 24,
+                    16,
+                    isCompact ? 16 : 24,
+                  ),
+                  child: FadeTransition(
+                    opacity: curve,
+                    child: ScaleTransition(
+                      scale: Tween<double>(begin: 0.94, end: 1.0).animate(curve),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: 580,
+                          maxHeight: isCompact
+                              ? MediaQuery.sizeOf(context).height * 0.88
+                              : double.infinity,
+                        ),
+                        child: Material(
+                          color: Colors.white,
+                          elevation: isCompact ? 8 : 12,
+                          shadowColor: Colors.black26,
+                          borderRadius: BorderRadius.circular(20),
+                          clipBehavior: Clip.antiAlias,
+                          child: widget.child,
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -4563,7 +4600,7 @@ void _showJobApplySheet(BuildContext context, String title, String company, Stri
                   Icon(Icons.extension_outlined, size: 16, color: Color(0xFF92400E)),
                   SizedBox(width: 6),
                   Expanded(child: Text(
-                    'Install the HirePanda Chrome extension to autofill this form.',
+                    'Install the ApplyRight Chrome extension to autofill this form.',
                     style: TextStyle(fontSize: 12, color: Color(0xFF92400E)),
                   )),
                 ]),
@@ -4612,12 +4649,12 @@ void _showJobApplySheet(BuildContext context, String title, String company, Stri
                 const Row(children: [
                   Icon(Icons.info_outline, size: 16, color: AppTheme.textSecondary),
                   SizedBox(width: 6),
-                  Text('How to use HirePanda', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  Text('How to use ApplyRight', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                 ]),
                 const SizedBox(height: 8),
                 _guideStep('1', 'Install the Chrome extension (one-time)', Icons.extension),
                 _guideStep('2', 'Click "Apply with Autofill" above — opens the job page', Icons.open_in_new),
-                _guideStep('3', 'Click the HirePanda icon in Chrome toolbar', Icons.touch_app),
+                _guideStep('3', 'Click the ApplyRight icon in Chrome toolbar', Icons.touch_app),
                 _guideStep('4', 'Your resume info fills the form automatically', Icons.auto_fix_high),
                 const SizedBox(height: 8),
                 InkWell(

@@ -29,4 +29,18 @@ class AuthService {
     });
     return Map<String, dynamic>.from(resp.data);
   }
+
+  /// Exchange a Google OAuth authorization code (PKCE) for our app JWT.
+  Future<Map<String, dynamic>> loginWithGoogleCode({
+    required String code,
+    required String redirectUri,
+    required String codeVerifier,
+  }) async {
+    final resp = await _api.post('/api/v1/auth/google/code', data: {
+      'code': code,
+      'redirectUri': redirectUri,
+      'codeVerifier': codeVerifier,
+    });
+    return Map<String, dynamic>.from(resp.data);
+  }
 }

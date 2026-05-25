@@ -70,7 +70,7 @@ _UPGRADE_MESSAGE_INR = (
 )
 _UPGRADE_MESSAGE_USD = (
     "You've reached your daily free limit. "
-    "Upgrade to Premium for just $9.99/month \u2014 less than $0.25/day \u2014 "
+    "Upgrade to Premium for just $0.99/week \u2014 "
     "and unlock unlimited job searches, AI autofill, and resume tailoring. "
     "A small step that could help you land your dream job and change your career path forever."
 )
@@ -93,7 +93,7 @@ def get_upgrade_price(country: str | None = None) -> dict:
     c = (country or "").strip().upper()
     if c in ("IN", "IND", "INDIA"):
         return {"amount": 199, "currency": "INR", "period": "month", "provider": "razorpay"}
-    return {"amount": 9.99, "currency": "USD", "period": "month", "provider": "lemonsqueezy"}
+    return {"amount": 0.99, "currency": "USD", "period": "week", "provider": "lemonsqueezy"}
 
 
 def get_country_for_billing(req, profile: dict | None = None) -> str:

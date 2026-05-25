@@ -277,12 +277,11 @@ the Merchant of Record (they collect global VAT/GST/sales tax for you).
 
 **Pricing** (set in code at `api/services/billing/routes.py`):
 
-| Plan         | Price    | Variant env var                  |
-| ------------ | -------- | -------------------------------- |
-| Free         | $0       | —                                |
-| Pro Weekly   | $3.49    | `LEMONSQUEEZY_VARIANT_PRO_WEEKLY`  |
-| Pro Monthly  | $9.99    | `LEMONSQUEEZY_VARIANT_PRO_MONTHLY` |
-| Pro Yearly   | $89.99   | `LEMONSQUEEZY_VARIANT_PRO_YEARLY`  |
+| Plan         | Price    | Config |
+| ------------ | -------- | ------ |
+| Free         | $0       | — |
+| Pro Weekly (intl) | $0.99/wk | `LEMONSQUEEZY_VARIANT_PRO_WEEKLY`, `LEMONSQUEEZY_CHECKOUT_PRO_WEEKLY` |
+| Pro Monthly (India) | ₹199/mo | `RAZORPAY_PLAN_PRO_MONTHLY` |
 
 **Step-by-step setup:**
 
@@ -296,9 +295,9 @@ the Merchant of Record (they collect global VAT/GST/sales tax for you).
    - Name: `AutoApply Pro`
    - Description: `Unlimited job searches, AI autofill, full resume tailoring`
    - Tax category: `SaaS / Software`
-   - Add **two variants**:
-     - `Monthly` — $9.99 — billing interval: 1 month, recurring
-     - `Yearly` — $89.99 — billing interval: 1 year, recurring
+   - Add **one variant**:
+     - `Weekly` — $0.99 — billing interval: 1 week, recurring
+     - Checkout URL: `https://autoapplypayment.lemonsqueezy.com/checkout/buy/31d6a9da-598d-4372-ae7f-3c58d360b61d`
    - Save. Copy the numeric **variant IDs** (visible in the URL or variant settings).
 5. **Get API credentials:**
    - Settings → API → "Create API key" → copy the `LEMONSQUEEZY_API_KEY` value.

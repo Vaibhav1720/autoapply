@@ -342,7 +342,7 @@ class _QuickContactRow extends StatelessWidget {
             title: 'Email us directly',
             body: _kSupportEmail,
             onTap: () => html.window.open(
-                'mailto:$_kSupportEmail?subject=HirePanda%20Support', '_blank'),
+                'mailto:$_kSupportEmail?subject=ApplyRight%20Support', '_blank'),
           ),
         ),
         const SizedBox(width: 12),

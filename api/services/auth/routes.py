@@ -2,7 +2,7 @@
 
 import azure.functions as func
 
-from shared.auth_v2 import get_user_id, login_with_google
+from shared.auth_v2 import get_user_id, login_with_google, exchange_google_auth_code
 from shared.blob_client import delete_blob
 from shared.cosmos_client import delete_item, read_item
 from shared.exceptions import AppException, ValidationError
@@ -27,6 +27,24 @@ def auth_google(req: func.HttpRequest) -> func.HttpResponse:
         return error_response(e)
     except Exception as e:
         logger.exception("Google login error")
+        return internal_error_response(str(e))
+
+
+@bp.route(route="api/v1/auth/google/code", methods=["POST"])
+def auth_google_code(req: func.HttpRequest) -> func.HttpResponse:
+    """POST /api/v1/auth/google/code — Exchange OAuth auth code (PKCE) for app JWT."""
+    try:
+        body = req.get_json() or {}
+        result = exchange_google_auth_code(
+            code=body.get("code", ""),
+            redirect_uri=body.get("redirectUri", ""),
+            code_verifier=body.get("codeVerifier", ""),
+        )
+        return success_response(result)
+    except AppException as e:
+        return error_response(e)
+    except Exception as e:
+        logger.exception("Google code exchange error")
         return internal_error_response(str(e))
 
 
