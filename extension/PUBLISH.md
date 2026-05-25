@@ -26,12 +26,21 @@ https://anjgpjhdecnibcbogkclafanemofndea.chromiumapp.org/
 
 ## Build ZIP (macOS)
 
+**Recommended (minimal v1.6.15 → API default fix, manifest 1.16.1):**
+
 ```bash
-cd extension
-zip -r ../autoapply-extension-v1.15.0.zip manifest.json content.js background.js popup.js popup.html options.js options.html icons _locales
-unzip -l ../autoapply-extension-v1.15.0.zip | head -20
+./tools/build-chrome-store-zip.sh
+# → release/applyright-chrome-store-1.16.1.zip
 ```
 
-**v1.15.0:** Narrow `host_permissions` to ATS domains + `optional_host_permissions` for custom career sites (Chrome Web Store “broad host permissions” policy). Do **not** include `key` in manifest.
+Step-by-step upload: `extension/CHROME_WEB_STORE_UPLOAD.md`.
+
+**From current `extension/` folder (includes local changes):**
+
+```bash
+./tools/build-extension-store-zip.sh
+```
+
+Do **not** include `key` in manifest for Web Store uploads.
 
 Upload: https://chrome.google.com/webstore/devconsole/387a263d-7b49-4653-a127-ca79a97c74e0/anjgpjhdecnibcbogkclafanemofndea/edit

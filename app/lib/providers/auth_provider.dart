@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
 import 'package:auto_apply/services/auth_service.dart';
 import 'package:auto_apply/services/api_service.dart';
 import 'package:auto_apply/services/google_sign_in_errors.dart';
@@ -22,9 +24,21 @@ class AuthProvider extends ChangeNotifier {
     if (_apiService.hasToken) {
       _isLoggedIn = true;
       _token = 'restored';
+      _syncTokenToChromeExtension();
       // Load user info from profile API in background
       _restoreSession();
     }
+  }
+
+  /// Push JWT to the Chrome extension (content script on autoapplynow.in).
+  void _syncTokenToChromeExtension() {
+    if (!kIsWeb) return;
+    try {
+      final t = html.window.localStorage['auth_token'];
+      if (t != null && t.isNotEmpty) {
+        html.window.postMessage({'type': 'AUTOAPPLY_SYNC_TOKEN', 'token': t}, '*');
+      }
+    } catch (_) {}
   }
 
   Future<void> _restoreSession() async {
@@ -124,6 +138,7 @@ class AuthProvider extends ChangeNotifier {
       _name = result['name'];
       _isLoggedIn = true;
       _apiService.setToken(_token);
+      _syncTokenToChromeExtension();
       _loading = false;
       notifyListeners();
       return true;
@@ -155,6 +170,7 @@ class AuthProvider extends ChangeNotifier {
       _name = result['name'];
       _isLoggedIn = true;
       _apiService.setToken(_token);
+      _syncTokenToChromeExtension();
       _loading = false;
       notifyListeners();
       return true;

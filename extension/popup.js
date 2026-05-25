@@ -4,7 +4,8 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 // Same backend as the Flutter web app — a Google sign-in here gives access
 // to the resume / saved answers uploaded on the web (and vice versa).
-const DEFAULT_API_BASE = "https://autoapply-func-dev.azurewebsites.net";
+// API is proxied at https://autoapplynow.in/api/* (avoids ad-block on *.azurewebsites.net).
+const DEFAULT_API_BASE = "https://autoapplynow.in";
 const LEGACY_API_BASE = "https://autoapply-func-dev.azurewebsites.net";
 const PRIVACY_URL = "https://mango-ocean-0f1de6810.2.azurestaticapps.net/privacy.html";
 
@@ -23,33 +24,83 @@ function show(id) {
   $(id).style.display = "block";
 }
 
+function normalizeApiBase(url) {
+  return (url || DEFAULT_API_BASE).trim().replace(/\/+$/, "") || DEFAULT_API_BASE;
+}
+
 async function loadApiBase() {
   return new Promise((res) => {
     chrome.storage.local.get(["autoapply_api_base"], (r) => {
       const stored = r.autoapply_api_base;
       // Auto-migrate stale pin to the legacy backend so the popup uses the
       // shared one without forcing the user into Settings.
-      if (stored === LEGACY_API_BASE) {
+      if (!stored || stored === LEGACY_API_BASE) {
         chrome.storage.local.set({ autoapply_api_base: DEFAULT_API_BASE });
         API_BASE = DEFAULT_API_BASE;
       } else {
-        API_BASE = stored || DEFAULT_API_BASE;
+        API_BASE = normalizeApiBase(stored);
       }
       res(API_BASE);
     });
   });
 }
 
-async function apiFetch(path, opts = {}) {
-  const url = `${API_BASE}${path}`;
-  const resp = await fetch(url, opts);
-  let data = null;
-  try { data = await resp.json(); } catch (_) {}
-  if (!resp.ok) {
-    const msg = (data && (data.error?.message || data.message || data.error)) || `HTTP ${resp.status}`;
-    throw new Error(msg);
+async function ensureServiceWorker() {
+  try {
+    await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ type: "PING" }, (r) => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(r);
+      });
+    });
+  } catch (_) {
+    await new Promise((r) => setTimeout(r, 200));
   }
-  return data;
+}
+
+async function apiFetch(path, opts = {}) {
+  await ensureServiceWorker();
+  let result;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      result = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(
+          {
+            type: "API_REQUEST",
+            path,
+            opts: {
+              method: opts.method,
+              headers: opts.headers,
+              body: opts.body,
+              timeoutMs: opts.timeoutMs,
+            },
+          },
+          (resp) => {
+            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+            else resolve(resp);
+          }
+        );
+      });
+      break;
+    } catch (e) {
+      if (attempt === 0 && /establish connection|receiving end does not exist/i.test(e.message || "")) {
+        await new Promise((r) => setTimeout(r, 300));
+        continue;
+      }
+      throw e;
+    }
+  }
+  if (!result?.ok) {
+    const raw = result?.error || "Request failed";
+    if (/failed to fetch|networkerror|load failed/i.test(raw)) {
+      throw new Error(
+        `Cannot reach ${API_BASE}. Set Extension Settings → API URL to https://autoapplynow.in, ` +
+          `or sign in on autoapplynow.in first and reopen this popup.`
+      );
+    }
+    throw new Error(raw);
+  }
+  return result.data;
 }
 
 // ---- Boot ----
@@ -132,11 +183,10 @@ async function tryPullTokenFromAppTab() {
 }
 
 // ---- Google sign-in ----
-// Web OAuth client ID (configured in Google Cloud Console). Replace with your
-// own value once you create the OAuth client per the README. The same web
-// client works for the extension via chrome.identity.launchWebAuthFlow + the
-// chromiumapp.org redirect URI.
+// Web OAuth client — add redirect URI in Google Cloud (Web client):
+// https://anjgpjhdecnibcbogkclafanemofndea.chromiumapp.org/
 const GOOGLE_CLIENT_ID = "8017795829-np8cfekibbnfr960rfo6fqj6g8kl8dm1.apps.googleusercontent.com";
+const WEB_STORE_OAUTH_REDIRECT = "https://anjgpjhdecnibcbogkclafanemofndea.chromiumapp.org/";
 
 function buildGoogleAuthUrl(redirectUri, nonce) {
   const params = new URLSearchParams({
@@ -202,7 +252,17 @@ $("#btnGoogleLogin").addEventListener("click", async () => {
       if (!hasResume) setTimeout(() => chrome.runtime.openOptionsPage(), 600);
     } catch (_) { /* non-fatal */ }
   } catch (e) {
-    setStatus("✗ " + e.message, "err");
+    let msg = e?.message || String(e);
+    const redirectUri = chrome.identity.getRedirectURL();
+    if (/redirect_uri_mismatch|invalid request|Error 400/i.test(msg)) {
+      msg =
+        "Add this redirect URI in Google Cloud → Credentials → Web client:\n" +
+        WEB_STORE_OAUTH_REDIRECT +
+        (redirectUri !== WEB_STORE_OAUTH_REDIRECT
+          ? "\n(Unpacked dev also needs: " + redirectUri + ")"
+          : "");
+    }
+    setStatus("✗ " + msg, "err");
   } finally {
     $("#btnGoogleLogin").disabled = false;
   }
@@ -290,8 +350,8 @@ $("#btnSettings").addEventListener("click", () => {
 $("#btnSaveSettings").addEventListener("click", () => {
   const v = $("#apiBase").value.trim().replace(/\/$/, "");
   if (!v) return;
-  chrome.storage.local.set({ autoapply_api_base: v }, () => {
-    API_BASE = v;
+  chrome.storage.local.set({ autoapply_api_base: normalizeApiBase(v) }, () => {
+    API_BASE = normalizeApiBase(v);
     setStatus("✓ Settings saved.", "ok");
     setTimeout(() => location.reload(), 500);
   });

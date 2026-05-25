@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "default_locale": "en",
   "name": "__MSG_extName__",
-  "version": "1.16.0",
+  "version": "1.16.1",
   "description": "__MSG_extShortDescription__",
   "homepage_url": "https://autoapplynow.in",
   "permissions": ["activeTab", "storage", "scripting", "identity"],
@@ -49,6 +49,16 @@
   ],
   "optional_host_permissions": ["https://*/*"],
   "content_scripts": [
+    {
+      "matches": [
+        "https://autoapplynow.in/*",
+        "https://www.autoapplynow.in/*",
+        "https://mango-ocean-0f1de6810.2.azurestaticapps.net/*"
+      ],
+      "js": ["content_app_bridge.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    },
     {
       "matches": [
         "https://autoapplynow.in/*",

@@ -3,8 +3,13 @@
 // Production backend (Azure Functions Consumption). The Flutter web app at
 // mango-ocean-0f1de6810.2.azurestaticapps.net points to the same host, so a
 // Google sign-in on either surface produces the same userId/profile/resume.
-const DEFAULT_API_BASE = "https://autoapply-func-dev.azurewebsites.net";
+const DEFAULT_API_BASE = "https://autoapplynow.in";
 const LEGACY_API_BASE = "https://autoapply-func-dev.azurewebsites.net";
+
+function normalizeApiBase(url) {
+  const s = (url || DEFAULT_API_BASE).trim().replace(/\/+$/, "");
+  return s || DEFAULT_API_BASE;
+}
 
 async function getApiBase() {
   return new Promise((res) => {
@@ -12,13 +17,45 @@ async function getApiBase() {
       const stored = r.autoapply_api_base;
       // Auto-migrate: if a previous install pinned the legacy backend, swap
       // it for the new shared one so the user doesn't have to fix Settings.
-      if (stored === LEGACY_API_BASE) {
+      if (!stored || stored === LEGACY_API_BASE) {
         chrome.storage.local.set({ autoapply_api_base: DEFAULT_API_BASE });
         return res(DEFAULT_API_BASE);
       }
-      res(stored || DEFAULT_API_BASE);
+      res(normalizeApiBase(stored));
     });
   });
+}
+
+/** Popup login uses this so fetch runs with host_permissions (fixes "Failed to fetch"). */
+async function apiRequest(path, opts = {}) {
+  const API_BASE = await getApiBase();
+  const url = `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+  const method = opts.method || "GET";
+  const headers = { ...(opts.headers || {}) };
+  const init = {
+    method,
+    headers,
+    signal: AbortSignal.timeout(opts.timeoutMs || 45000),
+  };
+  if (opts.body != null && method !== "GET" && method !== "HEAD") {
+    init.body = opts.body;
+  }
+  const resp = await fetch(url, init);
+  const text = await resp.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  if (!resp.ok) {
+    const msg =
+      (data && (data.error?.message || data.message || data.error)) ||
+      text.slice(0, 200) ||
+      `HTTP ${resp.status}`;
+    return { ok: false, error: typeof msg === "string" ? msg : JSON.stringify(msg), data };
+  }
+  return { ok: true, data };
 }
 
 /** Request optional host access for one origin (user gesture required). */
@@ -64,6 +101,22 @@ function injectContentScript(tabId) {
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === "PING") {
+    sendResponse({ ok: true });
+    return true;
+  }
+  if (msg.type === "API_REQUEST") {
+    apiRequest(msg.path, msg.opts || {})
+      .then((result) => sendResponse(result))
+      .catch((e) => {
+        const err =
+          e?.name === "TimeoutError"
+            ? "Backend timed out — try again."
+            : e?.message || String(e);
+        sendResponse({ ok: false, error: err });
+      });
+    return true;
+  }
   if (msg.type === "ENSURE_HOST_PERMISSION") {
     ensureHostPermissionForUrl(msg.url, sendResponse);
     return true;

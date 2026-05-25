@@ -2,7 +2,7 @@
 
 const $ = (s) => document.querySelector(s);
 // Same backend as the Flutter web app so resume + saved answers stay in sync.
-const DEFAULT_API_BASE = "https://autoapply-func-dev.azurewebsites.net";
+const DEFAULT_API_BASE = "https://autoapplynow.in";
 const LEGACY_API_BASE = "https://autoapply-func-dev.azurewebsites.net";
 
 let API_BASE = DEFAULT_API_BASE;
@@ -18,15 +18,19 @@ function setStatus(msg, kind) {
   if (kind === "ok") setTimeout(() => { el.style.display = "none"; }, 3000);
 }
 
+function normalizeApiBase(url) {
+  return (url || DEFAULT_API_BASE).trim().replace(/\/+$/, "") || DEFAULT_API_BASE;
+}
+
 async function loadConfig() {
   return new Promise((res) => {
     chrome.storage.local.get(["autoapply_api_base", "autoapply_token"], (r) => {
       const stored = r.autoapply_api_base;
-      if (stored === LEGACY_API_BASE) {
+      if (!stored || stored === LEGACY_API_BASE) {
         chrome.storage.local.set({ autoapply_api_base: DEFAULT_API_BASE });
         API_BASE = DEFAULT_API_BASE;
       } else {
-        API_BASE = stored || DEFAULT_API_BASE;
+        API_BASE = normalizeApiBase(stored);
       }
       TOKEN = r.autoapply_token || null;
       res();
@@ -35,16 +39,23 @@ async function loadConfig() {
 }
 
 async function api(path, opts = {}) {
-  const headers = opts.headers || {};
+  const headers = { ...(opts.headers || {}) };
   if (TOKEN) headers["Authorization"] = `Bearer ${TOKEN}`;
-  const resp = await fetch(`${API_BASE}${path}`, { ...opts, headers });
-  let data = null;
-  try { data = await resp.json(); } catch (_) {}
-  if (!resp.ok) {
-    const msg = (data && (data.error?.message || data.message || data.error)) || `HTTP ${resp.status}`;
-    throw new Error(msg);
-  }
-  return data;
+  const result = await new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      {
+        type: "API_REQUEST",
+        path,
+        opts: { method: opts.method, headers, body: opts.body, timeoutMs: opts.timeoutMs },
+      },
+      (resp) => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(resp);
+      }
+    );
+  });
+  if (!result?.ok) throw new Error(result?.error || "Request failed");
+  return result.data;
 }
 
 (async function init() {

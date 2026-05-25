@@ -266,35 +266,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _checkExtension() {
     _extProbeTimer?.cancel();
-    // Read DOM attribute (set by content.js immediately on load)
-    final attr = html.document.documentElement?.getAttribute('data-autoapply-ext') ?? '';
-    if (attr == 'connected') {
-      setState(() => _extStatus = 'connected');
-      return;
+    void applyAttr(String attr) {
+      if (!mounted) return;
+      if (attr == 'connected') {
+        setState(() => _extStatus = 'connected');
+      } else if (attr == 'installed') {
+        setState(() => _extStatus = 'installed');
+        _syncTokenToExtension();
+      }
     }
-    if (attr == 'installed') {
-      setState(() => _extStatus = 'installed');
-      _syncTokenToExtension();
+
+    final attr = html.document.documentElement?.getAttribute('data-autoapply-ext') ?? '';
+    if (attr == 'connected' || attr == 'installed') {
+      applyAttr(attr);
       return;
     }
 
-    // Attribute not set yet — probe via postMessage. The listener registered in
-    // _initExtensionListener will flip state when extension responds.
     setState(() => _extStatus = 'checking');
     html.window.postMessage({'type': 'AUTOAPPLY_CHECK_EXTENSION'}, '*');
 
-    // Re-check the DOM attribute after a short delay (content script may set it
-    // after document_idle). If still nothing, mark as not_installed.
-    _extProbeTimer = Timer(const Duration(milliseconds: 1200), () {
-      if (!mounted) return;
+    var attempts = 0;
+    _extProbeTimer = Timer.periodic(const Duration(milliseconds: 400), (t) {
+      attempts++;
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      html.window.postMessage({'type': 'AUTOAPPLY_CHECK_EXTENSION'}, '*');
       final retry = html.document.documentElement?.getAttribute('data-autoapply-ext') ?? '';
-      if (retry == 'connected') {
-        setState(() => _extStatus = 'connected');
-      } else if (retry == 'installed') {
-        setState(() => _extStatus = 'installed');
-        _syncTokenToExtension();
-      } else if (_extStatus == 'checking') {
-        setState(() => _extStatus = 'not_installed');
+      if (retry == 'connected' || retry == 'installed') {
+        applyAttr(retry);
+        t.cancel();
+        return;
+      }
+      if (attempts >= 8) {
+        t.cancel();
+        if (_extStatus == 'checking') {
+          setState(() => _extStatus = 'not_installed');
+        }
       }
     });
   }
@@ -439,11 +448,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: const Text('Retry Sync'),
         );
         break;
-      default: // not_installed or checking
+      case 'checking':
+        icon = Icons.extension;
+        iconColor = Colors.orange;
+        title = 'Checking for extension…';
+        subtitle =
+            'Open this site on autoapplynow.in (not an in-app browser). '
+            'If installed: Extensions → ApplyRight → Site access → On autoapplynow.in.';
+        action = OutlinedButton.icon(
+          onPressed: () => _checkExtension(),
+          icon: const Icon(Icons.refresh, size: 16),
+          label: const Text('Check Again'),
+        );
+        break;
+      default: // not_installed
         icon = Icons.extension_off;
         iconColor = AppTheme.textSecondary;
-        title = 'Install Chrome Extension';
-        subtitle = 'Autofill job application forms with one click.';
+        title = 'Chrome extension not detected';
+        subtitle =
+            'Install from the Web Store, then set Site access to On autoapplynow.in '
+            '(Extensions → ApplyRight → Details). Refresh this page and tap Check Again.';
         action = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

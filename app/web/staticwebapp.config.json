@@ -49,6 +49,6 @@
   ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/flutter_service_worker.js", "/privacy", "/privacy.html", "/support", "/support.html", "/robots.txt", "/sitemap.xml", "*.js", "*.css", "*.png", "*.jpg", "*.ico", "*.woff2", "*.json", "*.wasm", "*.html", "*.xml", "*.txt"]
+    "exclude": ["/api/*", "/flutter_service_worker.js", "/privacy", "/privacy.html", "/support", "/support.html", "/robots.txt", "/sitemap.xml", "*.js", "*.css", "*.png", "*.jpg", "*.ico", "*.woff2", "*.json", "*.wasm", "*.html", "*.xml", "*.txt"]
   }
 }

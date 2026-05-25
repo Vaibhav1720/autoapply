@@ -11,7 +11,7 @@ class AzureConfig {
   // API — set via --dart-define=API_BASE_URL at build time, or replace the default below.
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://autoapply-func-dev.azurewebsites.net',
+    defaultValue: 'https://autoapplynow.in',
   );
 
   // Blob Storage
