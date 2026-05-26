@@ -2061,19 +2061,26 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
         except (TypeError, ValueError):
             _li_display_cap = 200
         display_jobs = top_jobs[:_li_display_cap]
-        if not display_jobs and matched:
-            # Rerank/vector gates can drop everything — still show best deterministic matches.
+        if len(display_jobs) < min(10, len(matched)) and matched:
+            # Rerank/vector gates can drop almost everything — keep top deterministic matches.
             logger.warning(
-                "%s rerank left 0 display jobs; falling back to top %d by matchScore",
-                log_tag, min(_li_display_cap, len(matched)),
+                "%s only %d display jobs (matched=%d); topping up from matchScore",
+                log_tag, len(display_jobs), len(matched),
             )
-            display_jobs = sorted(
+            have_ids = {j.get("id") for j in display_jobs}
+            extras = sorted(
                 matched,
                 key=lambda x: x.get("matchScore", 0) or 0,
                 reverse=True,
-            )[:_li_display_cap]
-            for _j in display_jobs:
+            )
+            for _j in extras:
+                if _j.get("id") in have_ids:
+                    continue
                 _j.setdefault("aiScore", _calibrate_score(_j.get("matchScore", 0) or 0))
+                display_jobs.append(_j)
+                have_ids.add(_j.get("id"))
+                if len(display_jobs) >= min(_li_display_cap, max(10, len(matched))):
+                    break
         for _j in display_jobs:
             _j.pop("_aiReasonInternal", None)
             _j.pop("_emb", None)
