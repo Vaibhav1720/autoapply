@@ -1076,9 +1076,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         'industry': _industryId,
         'pivot': _pivotMode,
       }, cancelToken: _linkedInCancelToken, options: Options(
-        // LinkedIn search fetches ~1000 cards + AI scoring. Takes 60-120s.
-        receiveTimeout: const Duration(minutes: 5),
-        sendTimeout: const Duration(minutes: 1),
+        // SWA /api proxy ~45s; backend returns within ~40s with pool + scoring.
+        receiveTimeout: const Duration(seconds: 90),
+        sendTimeout: const Duration(seconds: 60),
       ));
       if (!mounted || linkedInGeneration != _linkedInGeneration) {
         return;

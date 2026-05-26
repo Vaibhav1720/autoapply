@@ -1858,6 +1858,9 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
         log_tag = f"[LI-SEARCH][{profile.get('email', user_id)}]"
         logger.info("%s queries=%s locations=%s pivot=%s",
                     log_tag, req_queries, req_locations, pivot_mode)
+        import time as _time
+        _li_started = _time.time()
+        swa_budget_s = float(os.environ.get("SWA_RESPONSE_BUDGET_S", "40"))
 
         # ── 1-day Cosmos cache for LinkedIn pool ──────────────────────
         import hashlib
@@ -1886,24 +1889,24 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
         # ── Fetch from LinkedIn if no cache ───────────────────────────
         if cached_pool is None:
             from concurrent.futures import ThreadPoolExecutor, as_completed
-            import time as _time
 
-            # Pull up to 1000 jobs per (query, location) pair
-            _li_pool_max = int(os.environ.get("LI_POOL_MAX_RESULTS", "1000"))
+            # Keep fetches small so the full handler returns before SWA's ~45s proxy cap.
+            _li_pool_max = int(os.environ.get("LI_POOL_MAX_RESULTS", "250"))
             pairs = [(q, l) for q in req_queries for l in req_locations]
-            max_pairs = int(os.environ.get("LI_SEARCH_MAX_PAIRS", "6"))
+            max_pairs = int(os.environ.get("LI_SEARCH_MAX_PAIRS", "4"))
             if max_pairs > 0 and len(pairs) > max_pairs:
                 pairs = pairs[:max_pairs]
-            search_deadline_s = float(os.environ.get("LI_SEARCH_DEADLINE_S", "150"))
+            search_deadline_s = float(os.environ.get("LI_SEARCH_DEADLINE_S", "18"))
             t_search_start = _time.time()
             all_cards: list[dict] = []
             seen_jids: set[str] = set()
-            with ThreadPoolExecutor(max_workers=min(len(pairs), 4)) as pool:
-                futs = {pool.submit(_li_bulk_fetch, q, l, _li_pool_max): (q, l) for q, l in pairs}
+            pool = ThreadPoolExecutor(max_workers=min(len(pairs), 4))
+            futs = {pool.submit(_li_bulk_fetch, q, l, _li_pool_max): (q, l) for q, l in pairs}
+            try:
                 for f in as_completed(futs):
                     q, l = futs[f]
                     try:
-                        cards = f.result() or []
+                        cards = f.result(timeout=max(2.0, search_deadline_s)) or []
                     except Exception as e:
                         logger.warning("%s fetch failed (%s, %s): %s", log_tag, q, l, e)
                         cards = []
@@ -1913,11 +1916,13 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
                             seen_jids.add(jid)
                             all_cards.append(c)
                     if _time.time() - t_search_start > search_deadline_s:
-                        logger.warning("%s search deadline exceeded, cancelling remaining", log_tag)
+                        logger.warning("%s search deadline exceeded, abandoning in-flight fetches", log_tag)
                         for x in futs:
                             if not x.done():
                                 x.cancel()
                         break
+            finally:
+                pool.shutdown(wait=False, cancel_futures=True)
             cached_pool = all_cards
             logger.info("%s fetched %d LinkedIn cards across %d pairs", log_tag, len(cached_pool), len(pairs))
             # Write to Cosmos cache (skip empty pools — a transient LinkedIn
@@ -1972,6 +1977,14 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
         )
         logger.info("%s MATCHED %d/%d jobs", log_tag, len(matched), len(jobs))
 
+        elapsed = _time.time() - _li_started
+        skip_slow_tail = elapsed > max(5.0, swa_budget_s - 14.0)
+        if skip_slow_tail:
+            logger.warning(
+                "%s elapsed %.1fs — skipping embeddings/rerank for SWA response budget",
+                log_tag, elapsed,
+            )
+
         # ── Embedding + scoring ───────────────────────────────────────
         from shared.embeddings import EMBEDDING_DIMS
         profile_embedding = profile.get("profileEmbedding", [])
@@ -1998,7 +2011,7 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
         except (TypeError, ValueError):
             _li_vec_window = 200
         top_jobs = matched[:_li_vec_window]
-        if profile_embedding:
+        if not skip_slow_tail and profile_embedding:
             texts = [job_to_text(j) for j in top_jobs]
             embs = generate_embeddings_batch(texts)
             for job, emb in zip(top_jobs, embs):
@@ -2014,6 +2027,9 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
                     job["vectorScore"] = 0
                     job["aiScore"] = _calibrate_score(job.get("matchScore", 0))
             top_jobs.sort(key=lambda x: x.get("aiScore", 0), reverse=True)
+        elif skip_slow_tail:
+            for job in top_jobs:
+                job["aiScore"] = _calibrate_score(job.get("matchScore", 0))
 
         # ── Rerank ────────────────────────────────────────────────────
         try:
@@ -2022,7 +2038,7 @@ def discover_linkedin_jobs(req: func.HttpRequest) -> func.HttpResponse:
             except (TypeError, ValueError):
                 _li_rerank_cap = 50
             rerank_n = min(_li_rerank_cap, len(top_jobs))
-            if rerank_n >= 3 and not _should_skip_rerank(top_jobs):
+            if not skip_slow_tail and rerank_n >= 3 and not _should_skip_rerank(top_jobs):
                 rerank_slice = top_jobs[:rerank_n]
                 _ai_rerank_top_jobs(rerank_slice, profile, "linkedin")
                 for j in rerank_slice:
