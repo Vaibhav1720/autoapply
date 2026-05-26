@@ -597,7 +597,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               const SizedBox(height: 12),
               const Text(
                 'Refreshing will scan every selected company again and can '
-                'take up to 2 minutes on a cold cache.',
+                'take up to about 5 minutes on a cold cache.',
                 style: TextStyle(fontWeight: FontWeight.w600),
               ),
             ],
@@ -707,46 +707,59 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         _companiesTotal = selectedIds.length;
       });
 
-      // ── Single bulk call replaces 150 individual per-company calls ──
-      // The bulk endpoint scrapes all native-scraper companies server-side
-      // in parallel with its own deadline, then returns all results at once.
-      // This is 5-10x faster than the old per-company approach and avoids
-      // individual call timeouts.
+      selectedIds = _prioritizeDiscoverCompanyIds(selectedIds);
+      const batchSize = 5;
+      final batches = <List<String>>[];
+      for (var i = 0; i < selectedIds.length; i += batchSize) {
+        final end = (i + batchSize > selectedIds.length)
+            ? selectedIds.length
+            : i + batchSize;
+        batches.add(selectedIds.sublist(i, end));
+      }
+
       final cancelToken = _searchCancelToken;
-      final resp = await api.post('/api/v1/jobs/discover/bulk', data: {
-        'query': _expandedQueries().isNotEmpty ? _expandedQueries().first : '',
-        'queries': _expandedQueries(),
-        'locations': _allLocations(),
-        'searchId': searchId,
-        'industry': _industryId,
-        'pivot': _pivotMode,
-      }, cancelToken: cancelToken, options: Options(
-        // SWA /api proxy caps backend calls near ~45s; server returns partial results in ~38s.
-        receiveTimeout: const Duration(seconds: 90),
-        sendTimeout: const Duration(seconds: 60),
-      ));
+      final bulkOpts = Options(
+        receiveTimeout: const Duration(minutes: 5),
+        sendTimeout: const Duration(minutes: 2),
+      );
+      final mergedByCompany = <String, Map<String, dynamic>>{};
+      var scannedCompanies = 0;
+      var totalFound = 0;
 
-      if (!mounted ||
-          _cancelled ||
-          searchGeneration != _searchGeneration) {
-        return;
-      }
+      for (var b = 0; b < batches.length; b++) {
+        if (!mounted || _cancelled || searchGeneration != _searchGeneration) {
+          return;
+        }
+        if (mounted) {
+          setState(() {
+            _companiesScanned = scannedCompanies;
+          });
+        }
+        final batch = batches[b];
+        final resp = await api.post('/api/v1/jobs/discover/bulk', data: {
+          'query': _expandedQueries().isNotEmpty ? _expandedQueries().first : '',
+          'queries': _expandedQueries(),
+          'locations': _allLocations(),
+          'searchId': searchId,
+          'industry': _industryId,
+          'pivot': _pivotMode,
+          'onlyCompanyIds': batch,
+          'selectedTotal': selectedIds.length,
+        }, cancelToken: cancelToken, options: bulkOpts);
 
-      dynamic raw = resp.data;
-      if (raw is String) {
-        try { raw = jsonDecode(raw); } catch (_) {}
-      }
-      final Map bulkData = (raw is Map) ? raw : const {};
-      final resultsList = bulkData['results'] as List? ?? [];
+        dynamic raw = resp.data;
+        if (raw is String) {
+          try { raw = jsonDecode(raw); } catch (_) {}
+        }
+        final Map bulkData = (raw is Map) ? raw : const {};
+        final resultsList = bulkData['results'] as List? ?? [];
+        scannedCompanies += resultsList.length;
 
-      if (mounted) {
-        final newGroups = <Map<String, dynamic>>[];
-        int totalFound = 0;
         for (final r in resultsList) {
           if (r is! Map) continue;
           final result = Map<String, dynamic>.from(r);
-          final rawCompany = result['company']?.toString();
           final companyId = result['companyId']?.toString() ?? '';
+          final rawCompany = result['company']?.toString();
           final company = _prettyCompanyName(rawCompany, companyId);
           final jobsRaw = result['jobs'];
           final jobs = <Map<String, dynamic>>[];
@@ -755,39 +768,69 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               if (j is Map) jobs.add(Map<String, dynamic>.from(j));
             }
           }
-          final count = (result['count'] is int)
-              ? result['count'] as int
-              : jobs.length;
-          if (jobs.isNotEmpty) {
-            newGroups.add({'company': company, 'jobs': jobs, 'count': count});
-            totalFound += count;
+          if (jobs.isEmpty) continue;
+          final key = companyId.isNotEmpty ? companyId : company;
+          final existing = mergedByCompany[key];
+          if (existing == null) {
+            mergedByCompany[key] = {
+              'company': company,
+              'companyId': companyId,
+              'jobs': List<Map<String, dynamic>>.from(jobs),
+              'count': jobs.length,
+            };
+          } else {
+            final list = existing['jobs'] as List<Map<String, dynamic>>;
+            final seen = <String>{
+              for (final j in list) j['id']?.toString() ?? j['title']?.toString() ?? '',
+            };
+            for (final j in jobs) {
+              final id = j['id']?.toString() ?? j['title']?.toString() ?? '';
+              if (id.isNotEmpty && seen.contains(id)) continue;
+              if (id.isNotEmpty) seen.add(id);
+              list.add(j);
+            }
+            existing['count'] = list.length;
           }
         }
-        newGroups.sort((a, b) =>
-            _bestScore(b).compareTo(_bestScore(a)));
-        final selectedTotal = bulkData['selectedTotal'];
-        if (selectedTotal is num) {
-          _companiesTotal = selectedTotal.toInt();
+
+        final pendingRaw = bulkData['pendingCompanyIds'];
+        if (pendingRaw is List && pendingRaw.isNotEmpty && mounted && !_cancelled) {
+          final pendingIds = pendingRaw
+              .map((e) => e.toString())
+              .where((s) => s.isNotEmpty)
+              .toList();
+          await _fillPendingBulkCompanies(api, pendingIds, searchId);
+        }
+      }
+
+      if (mounted) {
+        for (final g in _grouped) {
+          final companyId = g['companyId']?.toString() ?? '';
+          final company = g['company']?.toString() ?? '';
+          final key = companyId.isNotEmpty ? companyId : company;
+          if (key.isEmpty) continue;
+          final jobs = (g['jobs'] as List?)?.whereType<Map<String, dynamic>>().toList() ??
+              <Map<String, dynamic>>[];
+          if (jobs.isEmpty) continue;
+          mergedByCompany[key] = {
+            'company': company,
+            'companyId': companyId,
+            'jobs': jobs,
+            'count': jobs.length,
+          };
+        }
+        final newGroups = mergedByCompany.values.toList()
+          ..sort((a, b) => _bestScore(b).compareTo(_bestScore(a)));
+        totalFound = 0;
+        for (final g in newGroups) {
+          totalFound += (g['count'] as int?) ?? (g['jobs'] as List?)?.length ?? 0;
         }
         setState(() {
           _grouped = newGroups;
           _totalFound = totalFound;
-          _companiesScanned = resultsList.length;
+          _companiesScanned = scannedCompanies;
+          _companiesTotal = selectedIds.length;
         });
-        final pendingRaw = bulkData['pendingCompanyIds'];
-        final pendingIds = pendingRaw is List
-            ? pendingRaw.map((e) => e.toString()).where((s) => s.isNotEmpty).toList()
-            : <String>[];
-        if (bulkData['partial'] == true) {
-          final hint = bulkData['message']?.toString() ??
-              'Some company boards are still loading — tap Discover again to refresh.';
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(hint), duration: const Duration(seconds: 6)),
-          );
-        }
-        if (pendingIds.isNotEmpty && mounted && !_cancelled) {
-          await _fillPendingBulkCompanies(api, pendingIds, searchId);
-        }
       }
 
       _scrapedAt = DateTime.now().toIso8601String();
@@ -812,6 +855,25 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         setState(() => _loading = false);
       }
     }
+  }
+
+  static const List<String> _bulkPriorityCompanyIds = [
+    'comp-amazon',
+    'comp-google',
+    'comp-microsoft',
+    'comp-uber',
+    'comp-apple',
+    'comp-netflix',
+    'comp-nvidia',
+    'comp-meta',
+    'comp-stripe',
+  ];
+
+  List<String> _prioritizeDiscoverCompanyIds(List<String> ids) {
+    final priSet = _bulkPriorityCompanyIds.toSet();
+    final head = _bulkPriorityCompanyIds.where(ids.contains).toList();
+    final tail = ids.where((id) => !priSet.contains(id)).toList();
+    return [...head, ...tail];
   }
 
   /// Second pass after a partial bulk run (SWA ~45s cap) — one company per call.
@@ -878,7 +940,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           // groups (and the slug-like "comp-foo" placeholder names that
           // sometimes leaked through for them) just clutter the UI.
           if (jobs.isNotEmpty) {
-            _grouped.add({'company': company, 'jobs': jobs, 'count': count});
+            _grouped.add({
+              'company': company,
+              'companyId': companyId,
+              'jobs': jobs,
+              'count': count,
+            });
             _grouped.sort((a, b) =>
                 _bestScore(b).compareTo(_bestScore(a)));
             _totalFound += count;
@@ -1110,9 +1177,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         'industry': _industryId,
         'pivot': _pivotMode,
       }, cancelToken: _linkedInCancelToken, options: Options(
-        // SWA /api proxy ~45s; backend returns within ~40s with pool + scoring.
-        receiveTimeout: const Duration(seconds: 90),
-        sendTimeout: const Duration(seconds: 60),
+        receiveTimeout: const Duration(minutes: 5),
+        sendTimeout: const Duration(minutes: 2),
       ));
       if (!mounted || linkedInGeneration != _linkedInGeneration) {
         return;

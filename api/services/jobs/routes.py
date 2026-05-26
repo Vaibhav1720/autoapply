@@ -566,9 +566,14 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
         # We stop dispatching new work and cancel pending futures once this
         # elapses, then persist whatever has finished. Per-company timeout
         # below ensures no single scraper monopolizes a worker.
-        # SWA linked API proxy times out near 45s — respond before that with partial results.
-        bulk_deadline_s = float(os.environ.get("BULK_DEADLINE_S", "38"))
-        per_company_timeout_s = float(os.environ.get("BULK_PER_COMPANY_TIMEOUT_S", "45"))
+        # Single request covering ALL companies cannot exceed ~45s (SWA proxy).
+        # The web app sends `onlyCompanyIds` in batches (~5 companies each) so each
+        # batch can use a comfortable per-batch budget without hitting the gateway.
+        if only_ids:
+            bulk_deadline_s = float(os.environ.get("BULK_BATCH_DEADLINE_S", "120"))
+        else:
+            bulk_deadline_s = float(os.environ.get("BULK_DEADLINE_S", "42"))
+        per_company_timeout_s = float(os.environ.get("BULK_PER_COMPANY_TIMEOUT_S", "60"))
         max_workers = int(os.environ.get("BULK_MAX_WORKERS", "16"))
         bulk_started_at = time.time()
 
@@ -996,11 +1001,18 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
             sample = ", ".join(_company_display_name(c) or c for c in pending_ids[:5])
             extra = len(pending_ids) - min(5, len(pending_ids))
             suffix = f" (+{extra} more)" if extra > 0 else ""
-            resp_body["message"] = (
-                f"Scanned {len(results)} of {selected_total} companies under the "
-                f"45s gateway limit. Still pending: {sample}{suffix}. "
-                f"Tap Discover again to fetch the rest (Amazon & Uber run first)."
-            )
+            if only_ids:
+                resp_body["message"] = (
+                    f"This batch timed out with {len(pending_ids)} companies still "
+                    f"pending ({sample}{suffix}). The app will continue the next batch "
+                    f"automatically."
+                )
+            else:
+                resp_body["message"] = (
+                    f"Scanned {len(results)} of {selected_total} companies. "
+                    f"Still pending: {sample}{suffix}. Use batched discover from the app "
+                    f"or run Discover again."
+                )
         return success_response(resp_body)
     except AppException as e:
         return error_response(e)
