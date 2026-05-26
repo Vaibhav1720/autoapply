@@ -771,33 +771,24 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
         # We dispatch every selected company up-front (executor queue does the
         # work) but we cap how long we *wait* for each future and the overall
         # bulk so a stuck scraper can't blow past Y1's 230s response cap.
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-            future_map = {pool.submit(_discover_one, cid): cid for cid in selected}
+        # Do NOT use `with ThreadPoolExecutor` — context exit calls shutdown(wait=True)
+        # and would block until every submitted scraper finishes (~minutes).
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+        future_map = {pool.submit(_discover_one, cid): cid for cid in selected}
+        try:
             for fut in concurrent.futures.as_completed(future_map):
                 remaining = bulk_deadline_s - (time.time() - bulk_started_at)
                 if remaining <= 0:
                     bulk_deadline_hit = True
+                    pending = sum(1 for f in future_map if not f.done())
                     logger.warning(
-                        "[BULK] deadline %.0fs reached; cancelling %d pending futures",
+                        "[BULK] deadline %.0fs reached; abandoning %d in-flight scrapers",
                         bulk_deadline_s,
-                        sum(1 for f in future_map if not f.done()),
+                        pending,
                     )
                     for f in future_map:
                         if not f.done():
                             f.cancel()
-                            cid_pending = future_map[f]
-                            try:
-                                record_match_event(
-                                    user_id=user_id,
-                                    company_id=cid_pending,
-                                    matches=[],
-                                    scraped_count=0,
-                                    filtered_count=0,
-                                    duration_ms=int(bulk_deadline_s * 1000),
-                                    model_version="err:DeadlineExceeded",
-                                )
-                            except Exception:
-                                pass
                     break
                 try:
                     results.append(fut.result(timeout=min(per_company_timeout_s, remaining)))
@@ -837,6 +828,8 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
                         "count": 0,
                         "error": str(e),
                     })
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
         # ── GLOBAL LLM RERANK ──────────────────────────────────────────────
         # Bulk discover used to skip the strict-recruiter LLM rerank entirely,
