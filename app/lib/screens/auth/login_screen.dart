@@ -9,6 +9,7 @@ import 'package:auto_apply/providers/auth_provider.dart';
 import 'package:auto_apply/screens/main_shell.dart';
 import 'package:auto_apply/services/google_sign_in_helper.dart' as google;
 import 'package:auto_apply/services/google_sign_in_errors.dart';
+import 'package:auto_apply/widgets/login_demo_video.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -181,155 +182,209 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Widget _buildLoginPanel(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Container(
+        padding: const EdgeInsets.all(36),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppTheme.border),
+          boxShadow: AppTheme.elevatedShadow,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const BrandMark(showWordmark: false),
+            const SizedBox(height: 20),
+            ShaderMask(
+              shaderCallback: (r) => AppTheme.brandGradient.createShader(r),
+              child: Text(
+                'Welcome to ${AppConstants.appName}',
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                  letterSpacing: -0.4,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'AI-matched jobs from 100+ top companies, tailored to your profile.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 14,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 36),
+            if (_embeddedBrowser) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.error.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border:
+                      Border.all(color: AppTheme.error.withValues(alpha: 0.3)),
+                ),
+                child: Text(
+                  google.embeddedBrowserWarning() ??
+                      google.embeddedBrowserInstructions(),
+                  style: const TextStyle(
+                    color: AppTheme.error,
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: _openInSystemBrowser,
+                  icon: const Icon(Icons.open_in_browser),
+                  label: const Text('Open in Safari / Chrome'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: _copyLink,
+                  icon: const Icon(Icons.link),
+                  label: const Text('Copy link'),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+            Consumer<AuthProvider>(builder: (_, auth, __) {
+              if (auth.error != null) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    auth.error!,
+                    style: const TextStyle(color: AppTheme.error, fontSize: 13),
+                  ),
+                );
+              }
+              return const SizedBox.shrink();
+            }),
+            Consumer<AuthProvider>(builder: (_, auth, __) {
+              final disabled = _busy || auth.loading || _embeddedBrowser;
+              return SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: OutlinedButton.icon(
+                  onPressed: disabled ? null : _signInWithGoogle,
+                  icon: disabled
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.login, color: Colors.redAccent),
+                  label: Text(
+                    disabled && (_busy || auth.loading)
+                        ? 'Signing in…'
+                        : 'Sign in with Google',
+                    style: const TextStyle(fontSize: 15),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.black87,
+                    side: const BorderSide(color: Color(0xFFD1D5DB)),
+                    backgroundColor: Colors.white,
+                  ),
+                ),
+              );
+            }),
+            const SizedBox(height: 18),
+            Text(
+              'We use your Google account just to create your ${AppConstants.appName} profile.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            ),
+            const SizedBox(height: 20),
+            const _LegalFooter(),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final showLandingVideo = kIsWeb;
+
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(gradient: AppTheme.backgroundGradient),
         child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: Container(
-                  padding: const EdgeInsets.all(36),
-                  decoration: BoxDecoration(
-                    color: AppTheme.surface,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: AppTheme.border),
-                    boxShadow: AppTheme.elevatedShadow,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      const BrandMark(showWordmark: false),
-                      const SizedBox(height: 20),
-                      ShaderMask(
-                        shaderCallback: (r) =>
-                            AppTheme.brandGradient.createShader(r),
-                        child: Text(
-                          'Welcome to ${AppConstants.appName}',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                            letterSpacing: -0.4,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'AI-matched jobs from 100+ top companies, tailored to your profile.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: AppTheme.textSecondary,
-                          fontSize: 14,
-                          height: 1.45,
-                        ),
-                      ),
-                      const SizedBox(height: 36),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final wide =
+                  showLandingVideo && constraints.maxWidth >= 900;
 
-                      if (_embeddedBrowser) ...[
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppTheme.error.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                                color: AppTheme.error.withValues(alpha: 0.3)),
-                          ),
-                          child: Text(
-                            google.embeddedBrowserWarning() ??
-                                google.embeddedBrowserInstructions(),
-                            style: const TextStyle(
-                              color: AppTheme.error,
-                              fontSize: 13,
-                              height: 1.4,
+              if (!showLandingVideo || !wide) {
+                return Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (showLandingVideo) ...[
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 28),
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth: constraints.maxWidth - 48,
+                              ),
+                              child: buildLoginDemoVideo(),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: OutlinedButton.icon(
-                            onPressed: _openInSystemBrowser,
-                            icon: const Icon(Icons.open_in_browser),
-                            label: const Text('Open in Safari / Chrome'),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: OutlinedButton.icon(
-                            onPressed: _copyLink,
-                            icon: const Icon(Icons.link),
-                            label: const Text('Copy link'),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
+                        ],
+                        _buildLoginPanel(context),
                       ],
-
-                      Consumer<AuthProvider>(builder: (_, auth, __) {
-                        if (auth.error != null) {
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: Text(auth.error!,
-                                style: const TextStyle(
-                                    color: AppTheme.error, fontSize: 13)),
-                          );
-                        }
-                        return const SizedBox.shrink();
-                      }),
-
-                      Consumer<AuthProvider>(builder: (_, auth, __) {
-                        final disabled = _busy || auth.loading || _embeddedBrowser;
-                        return SizedBox(
-                          width: double.infinity,
-                          height: 52,
-                          child: OutlinedButton.icon(
-                            onPressed: disabled ? null : _signInWithGoogle,
-                            icon: disabled
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2),
-                                  )
-                                : const Icon(Icons.login,
-                                    color: Colors.redAccent),
-                            label: Text(
-                              disabled && (_busy || auth.loading)
-                                  ? 'Signing in…'
-                                  : 'Sign in with Google',
-                              style: const TextStyle(fontSize: 15),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.black87,
-                              side: const BorderSide(color: Color(0xFFD1D5DB)),
-                              backgroundColor: Colors.white,
-                            ),
-                          ),
-                        );
-                      }),
-                      const SizedBox(height: 18),
-                      Text(
-                        'We use your Google account just to create your ${AppConstants.appName} profile.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            color: AppTheme.textSecondary, fontSize: 12),
-                      ),
-                      const SizedBox(height: 20),
-                      const _LegalFooter(),
-                    ],
+                    ),
                   ),
-                ),
-              ),
-            ),
+                );
+              }
+
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    flex: 48,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(40, 24, 16, 24),
+                      child: Align(
+                        alignment: Alignment.center,
+                        child: buildLoginDemoVideo(),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 30,
+                    child: Center(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 24,
+                          horizontal: 16,
+                        ),
+                        child: _buildLoginPanel(context),
+                      ),
+                    ),
+                  ),
+                  const Spacer(flex: 22),
+                ],
+              );
+            },
           ),
         ),
       ),
