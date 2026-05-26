@@ -533,7 +533,8 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
         # We stop dispatching new work and cancel pending futures once this
         # elapses, then persist whatever has finished. Per-company timeout
         # below ensures no single scraper monopolizes a worker.
-        bulk_deadline_s = float(os.environ.get("BULK_DEADLINE_S", "190"))
+        # SWA linked API proxy times out near 45s — respond before that with partial results.
+        bulk_deadline_s = float(os.environ.get("BULK_DEADLINE_S", "38"))
         per_company_timeout_s = float(os.environ.get("BULK_PER_COMPANY_TIMEOUT_S", "45"))
         max_workers = int(os.environ.get("BULK_MAX_WORKERS", "16"))
         bulk_started_at = time.time()
@@ -765,6 +766,7 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
                 }
 
         results = []
+        bulk_deadline_hit = False
         # ── Bounded executor with deadline + per-future timeout ──
         # We dispatch every selected company up-front (executor queue does the
         # work) but we cap how long we *wait* for each future and the overall
@@ -774,6 +776,7 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
             for fut in concurrent.futures.as_completed(future_map):
                 remaining = bulk_deadline_s - (time.time() - bulk_started_at)
                 if remaining <= 0:
+                    bulk_deadline_hit = True
                     logger.warning(
                         "[BULK] deadline %.0fs reached; cancelling %d pending futures",
                         bulk_deadline_s,
@@ -843,8 +846,18 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
         # the per-company path on the GLOBAL top-N across all companies.
         # One LLM call per discover (cheap), catches everything the
         # deterministic filters miss.
+        swa_budget_s = float(os.environ.get("SWA_RESPONSE_BUDGET_S", "40"))
+        elapsed_before_rerank = time.time() - bulk_started_at
+        skip_slow_tail = elapsed_before_rerank > max(5.0, swa_budget_s - 12.0)
+        if skip_slow_tail:
+            logger.warning(
+                "[BULK] elapsed %.1fs — skipping LLM rerank to return before SWA ~45s cap",
+                elapsed_before_rerank,
+            )
         try:
             rerank_n = int(os.environ.get("BULK_RERANK_TOP_N", "30"))
+            if skip_slow_tail:
+                rerank_n = 0
             flat: list[dict] = []
             for r in results:
                 for j in r.get("jobs") or []:
@@ -893,37 +906,45 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
 
         _persist_discover_results(user_id, results)
 
-        # ── Record full funnel telemetry ──
-        try:
-            prefs = profile.get("preferences") or {}
-            _run_companies = []
-            for r in results:
-                _run_companies.append({
-                    "companyId": r.get("companyId", ""),
-                    "company": r.get("company", ""),
-                    "scraped": r.get("scraped", 0),
-                    "matched": r.get("count", 0),
-                    "displayed": len(r.get("jobs") or []),
-                    "error": r.get("error"),
-                    "noResultsReason": r.get("noResultsReason"),
-                })
-            _record_discover_run(
-                user_id=user_id,
-                email=profile.get("email", ""),
-                run_type="bulk",
-                queries=(body_queries or ([query] if query else []) or (prefs.get("keywords") or [])[:5]),
-                locations=(body_locations or prefs.get("locations", [])[:5]),
-                duration_ms=int((time.time() - bulk_started_at) * 1000),
-                companies=_run_companies,
-            )
-        except Exception:
-            pass
+        # ── Record full funnel telemetry (best-effort; never block SWA response) ──
+        if not skip_slow_tail:
+            try:
+                prefs = profile.get("preferences") or {}
+                _run_companies = []
+                for r in results:
+                    _run_companies.append({
+                        "companyId": r.get("companyId", ""),
+                        "company": r.get("company", ""),
+                        "scraped": r.get("scraped", 0),
+                        "matched": r.get("count", 0),
+                        "displayed": len(r.get("jobs") or []),
+                        "error": r.get("error"),
+                        "noResultsReason": r.get("noResultsReason"),
+                    })
+                _record_discover_run(
+                    user_id=user_id,
+                    email=profile.get("email", ""),
+                    run_type="bulk",
+                    queries=(body_queries or ([query] if query else []) or (prefs.get("keywords") or [])[:5]),
+                    locations=(body_locations or prefs.get("locations", [])[:5]),
+                    duration_ms=int((time.time() - bulk_started_at) * 1000),
+                    companies=_run_companies,
+                )
+            except Exception:
+                pass
 
-        return success_response({
+        resp_body = {
             "results": results,
             "totalFound": total,
             "companiesScraped": len(results),
-        })
+        }
+        if bulk_deadline_hit:
+            resp_body["partial"] = True
+            resp_body["message"] = (
+                f"Showing results from {len(results)} companies; "
+                f"run Discover again to refresh remaining boards."
+            )
+        return success_response(resp_body)
     except AppException as e:
         return error_response(e)
     except Exception as e:
@@ -1424,12 +1445,17 @@ def discover_company_jobs(req: func.HttpRequest) -> func.HttpResponse:
             _max_workers_cap = int(os.environ.get("SCRAPE_WORKERS_PER_COMPANY", "10"))
         except (TypeError, ValueError):
             _max_workers_cap = 10
+        company_deadline_s = float(os.environ.get("COMPANY_DISCOVER_DEADLINE_S", "36"))
         with ThreadPoolExecutor(max_workers=min(len(scrape_pairs), _max_workers_cap)) as pool:
             futures = {pool.submit(_scrape_one, p): p for p in scrape_pairs}
             for fut in as_completed(futures):
+                if time.time() - _t0 > company_deadline_s:
+                    logger.warning("%s wall-clock %.0fs cap; returning %d jobs so far",
+                                   log_tag, company_deadline_s, len(raw_jobs))
+                    break
                 sq, lq = futures[fut]
                 try:
-                    jobs = fut.result()
+                    jobs = fut.result(timeout=max(1.0, company_deadline_s - (time.time() - _t0)))
                     for j in jobs:
                         jid = j.get("id", j.get("title", ""))
                         if jid not in seen_ids:

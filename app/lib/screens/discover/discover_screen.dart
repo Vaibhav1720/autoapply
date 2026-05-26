@@ -721,10 +721,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         'industry': _industryId,
         'pivot': _pivotMode,
       }, cancelToken: cancelToken, options: Options(
-        // Bulk discover scrapes all selected companies server-side with AI scoring.
-        // Typical time: 120-200s. Give it 5 minutes before timing out.
-        receiveTimeout: const Duration(minutes: 5),
-        sendTimeout: const Duration(minutes: 1),
+        // SWA /api proxy caps backend calls near ~45s; server returns partial results in ~38s.
+        receiveTimeout: const Duration(seconds: 90),
+        sendTimeout: const Duration(seconds: 60),
       ));
 
       if (!mounted ||
@@ -771,6 +770,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           _totalFound = totalFound;
           _companiesScanned = resultsList.length;
         });
+        if (bulkData['partial'] == true) {
+          final hint = bulkData['message']?.toString() ??
+              'Some company boards are still loading — tap Discover again to refresh.';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(hint), duration: const Duration(seconds: 5)),
+          );
+        }
       }
 
       _scrapedAt = DateTime.now().toIso8601String();
@@ -1346,7 +1352,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           return serverMsg ?? 'Daily search limit reached (429). Try again tomorrow or upgrade.';
         }
         if (code != null && code >= 500) {
-          return 'Server error ($code) fetching LinkedIn jobs. ${serverMsg ?? "Please retry in a moment."}';
+          if ((serverMsg ?? '').toLowerCase().contains('backend call failure')) {
+            return 'Job search timed out at the gateway (~45s). Pull to refresh or tap Discover again — you should still get partial results after the fix deploys.';
+          }
+          return 'Server error ($code) during job search. ${serverMsg ?? "Please retry in a moment."}';
         }
         if (serverMsg != null) return '$serverMsg${code != null ? " ($code)" : ""}';
         if (code != null) return '$fallback (HTTP $code)';
