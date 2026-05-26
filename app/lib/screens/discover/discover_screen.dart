@@ -765,17 +765,28 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         }
         newGroups.sort((a, b) =>
             _bestScore(b).compareTo(_bestScore(a)));
+        final selectedTotal = bulkData['selectedTotal'];
+        if (selectedTotal is num) {
+          _companiesTotal = selectedTotal.toInt();
+        }
         setState(() {
           _grouped = newGroups;
           _totalFound = totalFound;
           _companiesScanned = resultsList.length;
         });
+        final pendingRaw = bulkData['pendingCompanyIds'];
+        final pendingIds = pendingRaw is List
+            ? pendingRaw.map((e) => e.toString()).where((s) => s.isNotEmpty).toList()
+            : <String>[];
         if (bulkData['partial'] == true) {
           final hint = bulkData['message']?.toString() ??
               'Some company boards are still loading — tap Discover again to refresh.';
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(hint), duration: const Duration(seconds: 5)),
+            SnackBar(content: Text(hint), duration: const Duration(seconds: 6)),
           );
+        }
+        if (pendingIds.isNotEmpty && mounted && !_cancelled) {
+          await _fillPendingBulkCompanies(api, pendingIds, searchId);
         }
       }
 
@@ -800,6 +811,29 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       if (mounted && searchGeneration == _searchGeneration) {
         setState(() => _loading = false);
       }
+    }
+  }
+
+  /// Second pass after a partial bulk run (SWA ~45s cap) — one company per call.
+  Future<void> _fillPendingBulkCompanies(
+    ApiService api,
+    List<String> companyIds,
+    String searchId,
+  ) async {
+    final cap = companyIds.length > 6 ? 6 : companyIds.length;
+    for (var i = 0; i < cap; i++) {
+      if (_cancelled || !mounted) return;
+      await _discoverCompany(api, companyIds[i], searchId);
+    }
+    if (mounted && companyIds.length > cap) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Fetched ${cap} more companies. Tap Discover again for the rest.',
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
     }
   }
 
@@ -1353,7 +1387,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         }
         if (code != null && code >= 500) {
           if ((serverMsg ?? '').toLowerCase().contains('backend call failure')) {
-            return 'Job search timed out at the gateway (~45s). Pull to refresh or tap Discover again — you should still get partial results after the fix deploys.';
+            return 'Search timed out at the gateway (~45s). Tap Search LinkedIn again — results should load on retry.';
           }
           return 'Server error ($code) during job search. ${serverMsg ?? "Please retry in a moment."}';
         }

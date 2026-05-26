@@ -272,6 +272,30 @@ def _company_display_name(company_id: str) -> str:
     return ""
 
 
+_DEFAULT_BULK_PRIORITY = [
+    "comp-amazon",
+    "comp-google",
+    "comp-microsoft",
+    "comp-uber",
+    "comp-apple",
+    "comp-netflix",
+    "comp-nvidia",
+    "comp-meta",
+    "comp-stripe",
+    "comp-salesforce",
+]
+
+
+def _prioritize_bulk_companies(company_ids: list[str]) -> list[str]:
+    """Run high-traffic career boards first so SWA time budgets still cover FAANG."""
+    raw = (os.environ.get("BULK_PRIORITY_COMPANIES") or "").strip()
+    priority = [x.strip() for x in raw.split(",") if x.strip()] if raw else _DEFAULT_BULK_PRIORITY
+    pri_set = set(priority)
+    head = [c for c in priority if c in company_ids]
+    tail = [c for c in company_ids if c not in pri_set]
+    return head + tail
+
+
 # ── Job results persistence ────────────────────────────────────────────────
 # Discover scans hundreds of jobs but historically returned them only in the
 # response. We now also persist the scored jobs into Cosmos `job_results` so
@@ -521,6 +545,15 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
                         _before_native - len(selected))
 
         body = req.get_json() if req.get_body() else {}
+        only_ids = body.get("onlyCompanyIds") or body.get("companyIds")
+        if only_ids:
+            allow = {str(c).strip() for c in only_ids if str(c).strip()}
+            selected = [c for c in selected if c in allow]
+        selected_total = len(selected)
+        selected = _prioritize_bulk_companies(selected)
+        bulk_fast = os.environ.get("BULK_FAST_MODE", "1").strip().lower() in (
+            "1", "true", "yes",
+        )
         query = body.get("query", "")
         body_queries = [str(q).strip() for q in (body.get("queries") or []) if str(q).strip()]
         body_locations = [str(l).strip() for l in (body.get("locations") or []) if str(l).strip()]
@@ -585,6 +618,17 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
                 if not location_queries:
                     location_queries = [""]
                 location_queries = location_queries[:3]
+                if bulk_fast:
+                    try:
+                        _mq = int(os.environ.get("BULK_MAX_QUERIES", "2"))
+                        _ml = int(os.environ.get("BULK_MAX_LOCATIONS", "2"))
+                    except (TypeError, ValueError):
+                        _mq, _ml = 2, 2
+                    search_queries_cap = max(1, _mq)
+                    location_queries_cap = max(1, _ml)
+                else:
+                    search_queries_cap = 99
+                    location_queries_cap = 99
                 keywords = prefs.get("keywords", [])
 
                 search_queries = []
@@ -606,6 +650,8 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
                 _maybe_add_eng_fallbacks(
                     search_queries, industry=(prefs.get("industry") or ""))
                 pivot = _level_qualify_queries(search_queries, profile, pivot=pivot_mode)
+                search_queries = search_queries[:search_queries_cap]
+                location_queries = location_queries[:location_queries_cap]
 
                 raw_jobs = []
                 seen_ids = set()
@@ -664,7 +710,11 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
                 top_jobs = matched[:50]
                 job_embeddings: list[list[float]] = []
 
-                if profile_embedding and len(profile_embedding) == EMBEDDING_DIMS:
+                if (
+                    not bulk_fast
+                    and profile_embedding
+                    and len(profile_embedding) == EMBEDDING_DIMS
+                ):
                     # 24h embedding cache (job_to_text is deterministic per
                     # company+id+title) — cuts bulk discover embedding cost
                     # roughly proportional to the harvest cache hit rate.
@@ -694,6 +744,11 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
                         else:
                             job["vectorScore"] = 0
                             job["aiScore"] = _calibrate_score(job.get("matchScore", 0))
+                    top_jobs.sort(key=lambda x: x.get("aiScore", 0), reverse=True)
+                else:
+                    for job in top_jobs:
+                        job["vectorScore"] = job.get("vectorScore", 0)
+                        job["aiScore"] = _calibrate_score(job.get("matchScore", 0) or 0)
                     top_jobs.sort(key=lambda x: x.get("aiScore", 0), reverse=True)
 
                 try:
@@ -926,16 +981,25 @@ def discover_bulk(req: func.HttpRequest) -> func.HttpResponse:
             except Exception:
                 pass
 
+        completed_ids = {r.get("companyId") for r in results if r.get("companyId")}
+        pending_ids = [c for c in selected if c not in completed_ids]
+
         resp_body = {
             "results": results,
             "totalFound": total,
             "companiesScraped": len(results),
+            "selectedTotal": selected_total,
+            "pendingCompanyIds": pending_ids,
         }
-        if bulk_deadline_hit:
+        if bulk_deadline_hit or pending_ids:
             resp_body["partial"] = True
+            sample = ", ".join(_company_display_name(c) or c for c in pending_ids[:5])
+            extra = len(pending_ids) - min(5, len(pending_ids))
+            suffix = f" (+{extra} more)" if extra > 0 else ""
             resp_body["message"] = (
-                f"Showing results from {len(results)} companies; "
-                f"run Discover again to refresh remaining boards."
+                f"Scanned {len(results)} of {selected_total} companies under the "
+                f"45s gateway limit. Still pending: {sample}{suffix}. "
+                f"Tap Discover again to fetch the rest (Amazon & Uber run first)."
             )
         return success_response(resp_body)
     except AppException as e:
