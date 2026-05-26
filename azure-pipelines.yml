@@ -21,7 +21,7 @@ variables:
   # See docs/PIPELINE.md for the full list.
   functionAppName: autoapply-func-dev
   resourceGroup: rg-autoapply-dev
-  apiBaseUrl: https://autoapply-func-dev.azurewebsites.net
+  apiBaseUrl: https://autoapplynow.in
   adminEmails: vibhuu1720@gmail.com
   swaName: autoapply-web-dev
   # Deployment runs on `main` when tests pass. Set `enableDeploy` to `false` in

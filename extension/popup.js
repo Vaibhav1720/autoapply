@@ -6,7 +6,7 @@ const $$ = (s) => document.querySelectorAll(s);
 // to the resume / saved answers uploaded on the web (and vice versa).
 // API is proxied at https://autoapplynow.in/api/* (avoids ad-block on *.azurewebsites.net).
 const DEFAULT_API_BASE = "https://autoapplynow.in";
-const LEGACY_API_BASE = "https://autoapply-func-dev.azurewebsites.net";
+const LEGACY_API_BASE = "https://autoapplynow.in";
 const PRIVACY_URL = "https://mango-ocean-0f1de6810.2.azurestaticapps.net/privacy.html";
 
 let API_BASE = DEFAULT_API_BASE;

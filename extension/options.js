@@ -3,7 +3,7 @@
 const $ = (s) => document.querySelector(s);
 // Same backend as the Flutter web app so resume + saved answers stay in sync.
 const DEFAULT_API_BASE = "https://autoapplynow.in";
-const LEGACY_API_BASE = "https://autoapply-func-dev.azurewebsites.net";
+const LEGACY_API_BASE = "https://autoapplynow.in";
 
 let API_BASE = DEFAULT_API_BASE;
 let TOKEN = null;

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 // ignore: avoid_web_libraries_in_flutter
@@ -182,18 +184,34 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  String? _apiErrorMessage(dynamic data) {
+    Map<String, dynamic>? map;
+    if (data is Map) {
+      map = Map<String, dynamic>.from(data);
+    } else if (data is String && data.trim().startsWith('{')) {
+      try {
+        map = Map<String, dynamic>.from(jsonDecode(data) as Map);
+      } catch (_) {}
+    }
+    if (map == null) return null;
+    final err = map['error'];
+    if (err is Map && err['message'] is String) {
+      return err['message'] as String;
+    }
+    return null;
+  }
+
   String _googleAuthErrorMessage(Object e) {
     if (e is DioException) {
-      final data = e.response?.data;
-      if (data is Map) {
-        final err = data['error'];
-        if (err is Map && err['message'] is String) {
-          return err['message'] as String;
-        }
-      }
+      final fromBody = _apiErrorMessage(e.response?.data);
+      if (fromBody != null && fromBody.isNotEmpty) return fromBody;
       if (e.type == DioExceptionType.connectionError ||
-          e.type == DioExceptionType.connectionTimeout) {
-        return 'Network error. Please check your connection.';
+          e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout) {
+        return 'Cannot reach the ApplyRight API. Refresh the page or try again in a minute.';
+      }
+      if (e.response?.statusCode != null && e.response!.statusCode! >= 500) {
+        return 'Server error during sign-in. Please try again shortly.';
       }
     }
     final msg = formatSignInError(e);

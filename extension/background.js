@@ -4,7 +4,7 @@
 // mango-ocean-0f1de6810.2.azurestaticapps.net points to the same host, so a
 // Google sign-in on either surface produces the same userId/profile/resume.
 const DEFAULT_API_BASE = "https://autoapplynow.in";
-const LEGACY_API_BASE = "https://autoapply-func-dev.azurewebsites.net";
+const LEGACY_API_BASE = "https://autoapplynow.in";
 
 function normalizeApiBase(url) {
   const s = (url || DEFAULT_API_BASE).trim().replace(/\/+$/, "");

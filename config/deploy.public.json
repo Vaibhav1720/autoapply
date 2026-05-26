@@ -7,7 +7,7 @@
   "resourceGroup": "rg-autoapply-dev",
   "subscriptionId": "555ca7ca-d26b-4f89-917d-7981e5b4af57",
   "tenantId": "9090726d-2786-4653-9d84-2cd402a7430a",
-  "apiBaseUrl": "https://autoapply-func-dev.azurewebsites.net",
+  "apiBaseUrl": "https://autoapplynow.in",
   "customDomain": "autoapplynow.in",
   "corsOrigins": [
     "https://autoapplynow.in",
